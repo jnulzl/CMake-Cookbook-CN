@@ -1,0 +1,980 @@
+% chapterintro
+% ==============================
+% 第6章 导言：6.0-chinese.md
+本章的主要内容如下：
+
+\begin{itemize}
+\item 配置时生成源码
+
+\item 使用Python在配置时生成源码
+
+\item 构建时使用Python生成源码
+
+\item 记录项目版本信息以便报告
+
+\item 从文件中记录项目版本
+
+\item 配置时记录Git Hash值
+
+\item 构建时记录Git Hash值
+
+\end{itemize}
+
+大多数项目，使用版本控制跟踪源码。源代码通常作为构建系统的输入，将其转换为o文件、库或可执行程序。某些情况下，我们使用构建系统在配置或构建步骤时生成源代码。根据配置步骤中收集的信息，对源代码进行微调。另一个常用的方式，是记录有关配置或编译的信息，以保证代码行为可重现性。本章中，我们将演示使用CMake提供的源代码生成工具，以及各种相关的策略。
+
+
+% --- recipe 1: 6.1-chinese.md ---
+\section{6.1 配置时生成源码}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-01} 中找到，其中包含一个Fortran/C例子。该示例在CMake 3.10版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows(使用MSYS Makefiles)上进行过测试。
+\end{myInfoBox}
+
+代码生成在配置时发生，例如：CMake可以检测操作系统和可用库；基于这些信息，我们可以定制构建的源代码。本节和下面的章节中，我们将演示如何生成一个简单源文件，该文件定义了一个函数，用于报告构建系统配置。
+
+\mySmallsection{准备工作}
+
+此示例的代码使用Fortran和C语言编写，第9章将讨论混合语言编程。主程序是一个简单的Fortran可执行程序，它调用一个C函数\texttt{print\_info()}，该函数将打印配置信息。值得注意的是，在使用Fortran 2003时，编译器将处理命名问题(对于C函数的接口声明)，如示例所示。我们将使用的\texttt{example.f90}作为源文件:
+
+\begin{codebox}[fortran]
+program hello_world
+
+  implicit none
+  
+  interface
+    subroutine print_info() bind(c, name="print_info")
+    end subroutine
+  end interface
+  
+  call print_info()
+  
+end program
+\end{codebox}
+
+C函数\texttt{print\_info()}在模板文件\texttt{print\_info.c.in}中定义。在配置时，以\texttt{@}开头和结尾的变量将被替换为实际值:
+
+\begin{codebox}[cpp]
+#include <stdio.h>
+#include <unistd.h>
+
+void print_info(void)
+{
+  printf("\n");
+  printf("Configuration and build information\n");
+  printf("-----------------------------------\n");
+  printf("\n");
+  printf("Who compiled | %s\n", "@_user_name@");
+  printf("Compilation hostname | %s\n", "@_host_name@");
+  printf("Fully qualified domain name | %s\n", "@_fqdn@");
+  printf("Operating system | %s\n",
+         "@_os_name@, @_os_release@, @_os_version@");
+  printf("Platform | %s\n", "@_os_platform@");
+  printf("Processor info | %s\n",
+         "@_processor_name@, @_processor_description@");
+  printf("CMake version | %s\n", "@CMAKE_VERSION@");
+  printf("CMake generator | %s\n", "@CMAKE_GENERATOR@");
+  printf("Configuration time | %s\n", "@_configuration_time@");
+  printf("Fortran compiler | %s\n", "@CMAKE_Fortran_COMPILER@");
+  printf("C compiler | %s\n", "@CMAKE_C_COMPILER@");
+  printf("\n");
+
+  fflush(stdout);
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+在CMakeLists.txt中，我们首先必须对选项进行配置，并用它们的值替换\texttt{print\_info.c.in}中相应的占位符。然后，将Fortran和C源代码编译成一个可执行文件:
+
+\begin{enumerate}
+\item 声明了一个Fortran-C混合项目:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.10 FATAL_ERROR)
+project(recipe-01 LANGUAGES Fortran C)
+\end{codebox}
+
+\item 使用\texttt{execute\_process}为项目获取当且使用者的信息:
+
+\begin{codebox}[cmake]
+execute_process(
+  COMMAND
+    whoami
+  TIMEOUT
+    1
+  OUTPUT_VARIABLE
+    _user_name
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+\end{codebox}
+
+\item 使用\texttt{cmake\_host\_system\_information()}函数(已经在第2章第5节遇到过)，可以查询很多系统信息:
+
+\begin{codebox}[cmake]
+# host name information
+cmake_host_system_information(RESULT _host_name QUERY HOSTNAME)
+cmake_host_system_information(RESULT _fqdn QUERY FQDN)
+# processor information
+cmake_host_system_information(RESULT _processor_name QUERY PROCESSOR_NAME)
+cmake_host_system_information(RESULT _processor_description QUERY PROCESSOR_DESCRIPTION)
+# os information
+cmake_host_system_information(RESULT _os_name QUERY OS_NAME)
+cmake_host_system_information(RESULT _os_release QUERY OS_RELEASE)
+cmake_host_system_information(RESULT _os_version QUERY OS_VERSION)
+cmake_host_system_information(RESULT _os_platform QUERY OS_PLATFORM)
+\end{codebox}
+
+\item 捕获配置时的时间戳，并通过使用字符串操作函数:
+
+\begin{codebox}[cmake]
+string(TIMESTAMP _configuration_time "%Y-%m-%d %H:%M:%S [UTC]" UTC)
+\end{codebox}
+
+\item 现在，准备好配置模板文件\texttt{print\_info.c.in}。通过CMake的\texttt{configure\_file}函数生成代码。注意，这里只要求以\texttt{@}开头和结尾的字符串被替换:
+
+\begin{codebox}[cmake]
+configure_file(print_info.c.in print_info.c @ONLY)
+\end{codebox}
+
+\item 最后，我们添加一个可执行目标，并定义目标源：
+
+\begin{codebox}[cmake]
+add_executable(example "")
+target_sources(example
+  PRIVATE
+    example.f90
+    ${CMAKE_CURRENT_BINARY_DIR}/print_info.c
+  ) 
+\end{codebox}
+
+\item 下面是一个输出示例：
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
+Configuration and build information
+-----------------------------------
+Who compiled | somebody
+Compilation hostname | laptop
+Fully qualified domain name | laptop
+Operating system | Linux, 4.16.13-1-ARCH, #1 SMP PREEMPT Thu May 31 23:29:29 UTC 2018
+Platform | x86_64
+Processor info | Unknown P6 family, 2 core Intel(R) Core(TM) i5-5200U CPU @ 2.20GHz
+CMake version | 3.11.3
+CMake generator | Unix Makefiles
+Configuration time | 2018-06-25 15:38:03 [UTC]
+Fortran compiler | /usr/bin/f95
+C compiler | /usr/bin/cc
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{configure\_file}命令可以复制文件，并用变量值替换它们的内容。示例中，使用\texttt{configure\_file}修改模板文件的内容，并将其复制到一个位置，然后将其编译到可执行文件中。如何调用\texttt{configure\_file}:
+
+\begin{codebox}[cmake]
+configure_file(print_info.c.in print_info.c @ONLY)
+\end{codebox}
+
+第一个参数是模板的名称为\texttt{ print\_info.c.in }。CMake假设输入文件的目录，与项目的根目录相对；也就是说，在\texttt{\$\{CMAKE\_CURRENT\_SOURCE\_DIR\}/print\_info.c.in}。我们选择\texttt{print\_info.c}，作为第二个参数是配置文件的名称。假设输出文件位于相对于项目构建目录的位置：\texttt{\$\{CMAKE\_CURRENT\_BINARY\_DIR\}/print\_info.c}。
+
+输入和输出文件作为参数时，CMake不仅将配置\texttt{@VAR@}变量，还将配置\texttt{\$\{VAR\}}变量。如果\texttt{\$\{VAR\}}是语法的一部分，并且不应该修改(例如在shell脚本中)，那么就很不方便。为了在引导CMake，应该将选项\texttt{@ONLY}传递给\texttt{configure\_file}的调用，如前所述。
+
+\mySmallsection{更多信息}
+
+注意，用值替换占位符时，CMake中的变量名应该与将要配置的文件中使用的变量名完全相同，并放在\texttt{@}之间。可以在调用\texttt{configure\_file}时定义的任何CMake变量。我们的示例中，这包括所有内置的CMake变量，如\texttt{CMAKE\_VERSION}或\texttt{CMAKE\_GENERATOR}。此外，每当修改模板文件时，重新生成代码将触发生成系统的重新生成。这样，配置的文件将始终保持最新。
+
+\begin{myInfoBox}
+\textbf{TIPS}：通过使用\texttt{CMake --help-variable-list}，可以从CMake手册中获得完整的内部CMake变量列表。 \textbf{NOTE}：\texttt{file(GENERATE…)}为提供了一个有趣的替代\texttt{configure\_file}，这是因为\texttt{file}允许将生成器表达式作为配置文件的一部分进行计算。但是，每次运行CMake时，\texttt{file(GENERATE…)}都会更新输出文件，这将强制重新构建依赖于该输出的所有目标。详细可参见\texthref{https://crascit.com/2017/04/18/generated-sources-in-cmake-build} 。
+\end{myInfoBox}
+
+
+% --- recipe 2: 6.2-chinese.md ---
+\section{6.2 使用Python在配置时生成源码}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-02} 中找到，其中包含一个Fortran/C例子。该示例在CMake 3.10版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows(使用MSYS Makefile)上进行过测试。
+\end{myInfoBox}
+
+本示例中，我们将再次从模板\texttt{print\_info.c.in}生成\texttt{print\_info.c}。但这一次，将假设CMake函数\texttt{configure\_file()}没有创建源文件，然后使用Python脚本模拟这个过程。当然，对于实际的项目，我们可能更倾向于使用\texttt{configure\_file()}，但有时使用Python生成源代码的需要时，我们也应该知道如何应对。
+
+这个示例有严重的限制，不能完全模拟\texttt{configure\_file()}。我们在这里介绍的方法，不能生成一个自动依赖项，该依赖项将在构建时重新生成\texttt{print\_info.c}。换句话说，如果在配置之后删除生成的\texttt{print\_info.c}，则不会重新生成该文件，构建也会失败。要正确地模拟\texttt{configure\_file()}，需要使用\texttt{add\_custom\_command()}和\texttt{add\_custom\_target()}。我们将在第3节中使用它们，来克服这个限制。
+
+这个示例中，我们将使用一个简单的Python脚本。这个脚本将读取\texttt{print\_info.c.in}。用从CMake传递给Python脚本的参数替换文件中的占位符。对于更复杂的模板，我们建议使用外部工具，比如Jinja(参见\texthref{http://jinja.pocoo.org} )。
+
+\begin{codebox}[python]
+def configure_file(input_file, output_file, vars_dict):
+
+  with input_file.open('r') as f:
+    template = f.read()
+
+  for var in vars_dict: 
+    template = template.replace('@' + var + '@', vars_dict[var])
+
+  with output_file.open('w') as f:
+    f.write(template)
+\end{codebox}
+
+这个函数读取一个输入文件，遍历\texttt{ vars\_dict}变量中的目录，并用对应的值替换\texttt{@key@}，再将结果写入输出文件。这里的键值对，将由CMake提供。
+
+\mySmallsection{准备工作}
+
+\texttt{print\_info.c.in}和\texttt{example.f90}与之前的示例相同。此外，我们将使用Python脚本\texttt{configurator.py}，它提供了一个函数:
+
+\begin{codebox}[python]
+def configure_file(input_file, output_file, vars_dict):
+  with input_file.open('r') as f:
+    template = f.read()
+    
+  for var in vars_dict:
+    template = template.replace('@' + var + '@', vars_dict[var])
+    
+  with output_file.open('w') as f:
+    f.write(template)
+\end{codebox}
+
+该函数读取输入文件，遍历\texttt{vars\_dict}字典的所有键，用对应的值替换模式\texttt{@key@}，并将结果写入输出文件(键值由CMake提供)。
+
+\mySmallsection{具体实施}
+
+与前面的示例类似，我们需要配置一个模板文件，但这一次，使用Python脚本模拟\texttt{configure\_file()}函数。我们保持CMakeLists.txt基本不变，并提供一组命令进行替换操作\texttt{configure\_file(print\_info.c.in print\_info.c @ONLY)}，接下来将逐步介绍这些命令:
+
+\begin{enumerate}
+\item 首先，构造一个变量\texttt{\_config\_script}，它将包含一个Python脚本，稍后我们将执行这个脚本:
+
+\begin{codebox}[cmake]
+set(_config_script
+"
+from pathlib import Path
+source_dir = Path('${CMAKE_CURRENT_SOURCE_DIR}')
+binary_dir = Path('${CMAKE_CURRENT_BINARY_DIR}')
+input_file = source_dir / 'print_info.c.in'
+output_file = binary_dir / 'print_info.c'
+import sys
+sys.path.insert(0, str(source_dir))
+from configurator import configure_file
+vars_dict = {
+  '_user_name': '${_user_name}',
+  '_host_name': '${_host_name}',
+  '_fqdn': '${_fqdn}',
+  '_processor_name': '${_processor_name}',
+  '_processor_description': '${_processor_description}',
+  '_os_name': '${_os_name}',
+  '_os_release': '${_os_release}',
+  '_os_version': '${_os_version}',
+  '_os_platform': '${_os_platform}',
+  '_configuration_time': '${_configuration_time}',
+  'CMAKE_VERSION': '${CMAKE_VERSION}',
+  'CMAKE_GENERATOR': '${CMAKE_GENERATOR}',
+  'CMAKE_Fortran_COMPILER': '${CMAKE_Fortran_COMPILER}',
+  'CMAKE_C_COMPILER': '${CMAKE_C_COMPILER}',
+}
+configure_file(input_file, output_file, vars_dict)
+")
+\end{codebox}
+
+\item 使用\texttt{find\_package}让CMake使用Python解释器:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp QUIET REQUIRED)
+\end{codebox}
+
+\item 如果找到Python解释器，则可以在CMake中执行\texttt{\_config\_script}，并生成\texttt{print\_info.c}文件:
+
+\begin{codebox}[cmake]
+execute_process(
+  COMMAND
+    ${PYTHON_EXECUTABLE} "-c" ${_config_script}
+  )
+\end{codebox}
+
+\item 之后，定义可执行目标和依赖项，这与前一个示例相同。所以，得到的输出没有变化。
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+回顾一下对CMakeLists.txt的更改。
+
+我们执行了一个Python脚本生成\texttt{print\_info.c}。运行Python脚本前，首先检测Python解释器，并构造Python脚本。Python脚本导入\texttt{configure\_file}函数，我们在\texttt{configurator.py}中定义了这个函数。为它提供用于读写的文件位置，并将其值作为键值对。
+
+此示例展示了生成配置的另一种方法，将生成任务委托给外部脚本，可以将配置报告编译成可执行文件，甚至库目标。我们在前面的配置中认为的第一种方法更简洁，但是使用本示例中提供的方法，我们可以灵活地使用Python(或其他语言)，实现任何在配置时间所需的步骤。使用当前方法，我们可以通过脚本的方式执行类似\texttt{cmake\_host\_system\_information()}的操作。
+
+但要记住，这种方法也有其局限性，它不能在构建时重新生成\texttt{print\_info.c}的自动依赖项。下一个示例中，我们应对这个挑战。
+
+\mySmallsection{更多信息}
+
+我们可以使用\texttt{get\_cmake\_property(\_vars VARIABLES)}来获得所有变量的列表，而不是显式地构造\texttt{vars\_dict}(这感觉有点重复)，并且可以遍历\texttt{\_vars}的所有元素来访问它们的值:
+
+\begin{codebox}[cmake]
+get_cmake_property(_vars VARIABLES)
+foreach(_var IN ITEMS ${_vars})
+  message("variable ${_var} has the value ${${_var}}") 
+endforeach()
+\end{codebox}
+
+使用这种方法，可以隐式地构建\texttt{vars\_dict}。但是，必须注意转义包含字符的值，例如:\texttt{;}， Python会将其解析为一条指令的末尾。
+
+
+% --- recipe 3: 6.3-chinese.md ---
+\section{6.3 构建时使用Python生成源码}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-03} 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+构建时根据某些规则生成冗长和重复的代码，同时避免在源代码存储库中显式地跟踪生成的代码生成源代码，是开发人员工具箱中的一个重要工具，例如：根据检测到的平台或体系结构生成不同的源代码。或者，可以使用Python，根据配置时收集的输入，在构建时生成高效的C++代码。其他生成器解析器，比如：Flex (https://github.com/westes/flex )和Bison(https://www.gnu.org/software/bison/ )；元对象编译器，如Qt的moc(http://doc.qt.io/qt5/moc.html )；序列化框架，如谷歌的protobuf (https://developers.google.com/protocol-buffers/ )。
+
+\mySmallsection{准备工作}
+
+为了提供一个具体的例子，我们需要编写代码来验证一个数字是否是质数。现在有很多算法，例如：可以用埃拉托色尼的筛子(sieve of Eratosthenes)来分离质数和非质数。如果有很多验证数字，我们不希望对每一个数字都进行Eratosthenes筛选。我们想要做的是将所有质数一次制表，直到数字的上限，然后使用一个表查的方式，找来验证大量的数字。
+
+本例中，将在编译时使用Python为查找表(质数向量)生成C++代码。当然，为了解决这个特殊的编程问题，我们还可以使用C++生成查询表，并且可以在运行时执行查询。
+
+让我们从\texttt{generate.py}脚本开始。这个脚本接受两个命令行参数——一个整数范围和一个输出文件名:
+
+\begin{codebox}[python]
+"""
+Generates C++ vector of prime numbers up to max_number
+using sieve of Eratosthenes.
+"""
+import pathlib
+import sys
+
+# for simplicity we do not verify argument list
+max_number = int(sys.argv[-2])
+output_file_name = pathlib.Path(sys.argv[-1])
+
+numbers = range(2, max_number + 1)
+is_prime = {number: True for number in numbers}
+
+for number in numbers:
+  current_position = number
+  if is_prime[current_position]:
+    while current_position <= max_number:
+      current_position += number
+      is_prime[current_position] = False
+      
+primes = (number for number in numbers if is_prime[number])
+
+code = """#pragma once
+
+#include <vector>
+
+const std::size_t max_number = {max_number};
+std::vector<int> & primes() {{
+  static std::vector<int> primes;
+  {push_back}
+  return primes;
+}}
+"""
+push_back = '\n'.join([' primes.push_back({:d});'.format(x) for x in primes])
+output_file_name.write_text(
+code.format(max_number=max_number, push_back=push_back))
+\end{codebox}
+
+我们的目标是生成一个\texttt{primes.hpp}，并将其包含在下面的示例代码中:
+
+\begin{codebox}[cpp]
+#include "primes.hpp"
+
+#include <iostream>
+#include <vector>
+
+int main() {
+  std::cout << "all prime numbers up to " << max_number << ":";
+  
+  for (auto prime : primes())
+    std::cout << " " << prime;
+  
+  std::cout << std::endl;
+  
+  return 0;
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+下面是CMakeLists.txt命令的详解:
+
+\begin{enumerate}
+\item 首先，定义项目并检测Python解释器:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(PythonInterp QUIET REQUIRED)
+\end{codebox}
+
+\item 将生成的代码放在\texttt{\$\{CMAKE\_CURRENT\_BINARY\_DIR\}/generate}下，需要告诉CMake创建这个目录:
+
+\begin{codebox}[cmake]
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated)
+\end{codebox}
+
+\item Python脚本要求质数的上限，使用下面的命令，我们可以设置一个默认值:
+
+\begin{codebox}[cmake]
+set(MAX_NUMBER "100" CACHE STRING "Upper bound for primes")
+\end{codebox}
+
+\item 接下来，定义一个自定义命令来生成头文件:
+
+\begin{codebox}[cmake]
+add_custom_command(
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  COMMAND
+    ${PYTHON_EXECUTABLE} generate.py ${MAX_NUMBER}  ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  WORKING_DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS
+    generate.py
+)
+\end{codebox}
+
+\item 最后，定义可执行文件及其目标，包括目录和依赖关系:
+
+\begin{codebox}[cmake]
+add_executable(example "")
+target_sources(example
+  PRIVATE
+    example.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  )
+target_include_directories(example
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+\end{codebox}
+
+\item 准备测试:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
+all prime numbers up to 100: 2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79 
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{具体实施}
+
+为了生成头文件，我们定义了一个自定义命令，它执行\texttt{generate.py}脚本，并接受\texttt{\$\{MAX\_NUMBER\}}和文件路径(\texttt{\$\{CMAKE\_CURRENT\_BINARY\_DIR\}/generated/primes.hpp})作为参数:
+
+\begin{codebox}[cmake]
+add_custom_command(
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  COMMAND
+    ${PYTHON_EXECUTABLE} generate.py ${MAX_NUMBER} ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  WORKING_DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS
+    generate.py
+  )
+\end{codebox}
+
+为了生成源代码，我们需要在可执行文件的定义中，使用\texttt{target\_sources}很容易实现添加源代码作为依赖项:
+
+\begin{codebox}[cmake]
+target_sources(example
+  PRIVATE
+    example.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/primes.hpp
+  )
+\end{codebox}
+
+前面的代码中，我们不需要定义新的目标。头文件将作为示例的依赖项生成，并在每次\texttt{generate.py}脚本更改时重新生成。如果代码生成脚本生成多个源文件，那么要将所有生成的文件列出，做为某些目标的依赖项。
+
+\mySmallsection{更多信息}
+
+我们提到所有的生成文件，都应该作为某个目标的依赖项。但是，我们可能不知道这个文件列表，因为它是由生成文件的脚本决定的，这取决于我们提供给配置的输入。这种情况下，我们可能会尝试使用\texttt{file(GLOB…)}将生成的文件收集到一个列表中(参见\texthref{https://cmake.org/cmake/help/v3.5/command/file.html} )。
+
+\texttt{file(GLOB…)}在配置时执行，而代码生成是在构建时发生的。因此可能需要一个间接操作，将\texttt{file(GLOB…)}命令放在一个单独的CMake脚本中，使用\texttt{\$\{CMAKE\_COMMAND\} -P}执行该脚本，以便在构建时获得生成的文件列表。
+
+
+% --- recipe 4: 6.4-chinese.md ---
+\section{6.4 记录项目版本信息以便报告}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-04} 中找到，其中包含一个C和Fortran例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+代码版本很重要，不仅是为了可重复性，还为了记录API功能或简化支持请求和bug报告。源代码通常处于某种版本控制之下，例如：可以使用Git标记附加额外版本号(参见\texthref{https://semver.org} )。然而，不仅需要对源代码进行版本控制，而且可执行文件还需要记录项目版本，以便将其打印到代码输出或用户界面上。
+
+本例中，将在CMake源文件中定义版本号。我们的目标是在配置项目时将程序版本记录到头文件中。然后，生成的头文件可以包含在代码的正确位置和时间，以便将代码版本打印到输出文件或屏幕上。
+
+\mySmallsection{准备工作}
+
+将使用以下C文件(\texttt{example.c})打印版本信息:
+
+\begin{codebox}[cpp]
+#include "version.h"
+
+#include <stdio.h>
+
+int main() {
+  printf("This is output from code %s\n", PROJECT_VERSION);
+  printf("Major version number: %i\n", PROJECT_VERSION_MAJOR);
+  printf("Minor version number: %i\n", PROJECT_VERSION_MINOR);
+  
+  printf("Hello CMake world!\n");
+}
+\end{codebox}
+
+这里，假设\texttt{PROJECT\_VERSION\_MAJOR}、\texttt{PROJECT\_VERSION\_MINOR}和\texttt{PROJECT\_VERSION}是在\texttt{version.h}中定义的。目标是从以下模板中生成\texttt{version.h.in}:
+
+\begin{codebox}[cpp]
+#pragma once
+
+#define PROJECT_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define PROJECT_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define PROJECT_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+#define PROJECT_VERSION "v@PROJECT_VERSION@"
+\end{codebox}
+
+这里使用预处理器定义，也可以使用字符串或整数常量来提高类型安全性(稍后我们将对此进行演示)。从CMake的角度来看，这两种方法是相同的。
+
+\mySmallsection{如何实施}
+
+我们将按照以下步骤，在模板头文件中对版本进行注册:
+
+\begin{enumerate}
+\item 要跟踪代码版本，我们可以在CMakeLists.txt中调用CMake的\texttt{project}时定义项目版本:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-04 VERSION 2.0.1 LANGUAGES C)
+\end{codebox}
+
+\item 然后，基于\texttt{version.h.in}生成\texttt{version.h}:
+
+\begin{codebox}[cmake]
+configure_file(
+  version.h.in
+  generated/version.h
+  @ONLY
+  )
+\end{codebox}
+
+\item 最后，我们定义了可执行文件，并提供了目标包含路径:
+
+\begin{codebox}[cmake]
+add_executable(example example.c)
+target_include_directories(example
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+当使用版本参数调用CMake的\texttt{project}时，CMake将为项目设置\texttt{PROJECT\_VERSION\_MAJOR}、\texttt{PROJECT\_VERSION\_MINOR}和\texttt{PROJECT\_VERSION\_PATCH}。此示例中的关键命令是\texttt{configure\_file}，它接受一个输入文件(本例中是\texttt{version.h.in})，通过将\texttt{@}之间的占位符替换成对应的CMake变量，生成一个输出文件(本例中是\texttt{generate/version.h})。它将\texttt{@PROJECT\_VERSION\_MAJOR@}替换为2，以此类推。使用关键字\texttt{@ONLY}，我们将\texttt{PROJECT\_VERSION\_MAJOR}0限制为只替换\texttt{PROJECT\_VERSION\_MAJOR}1，而不修改\texttt{PROJECT\_VERSION\_MAJOR}2。后一种形式在\texttt{PROJECT\_VERSION\_MAJOR}3中没有使用。但是，当使用CMake配置shell脚本时，会经常出现。
+
+生成的头文件可以包含在示例代码中，可以打印版本信息:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
+
+This is output from code v2.0.1
+Major version number: 2
+Minor version number: 0
+Hello CMake world!
+\end{codebox}
+
+\begin{myInfoBox}
+\textbf{NOTE}：CMake以\texttt{x.y.z}格式给出的版本号，并将变量\texttt{PROJECT\_VERSION}和\texttt{ <project-name>\_VERSION}设置为给定的值。此外,\texttt{PROJECT\_VERSION\_MAJOR}(\texttt{<project-name>\_VERSION\_MAJOR}),\texttt{PROJECT\_VERSION\_MINOR}(\texttt{<project-name>\_VERSION\_MINOR}) \texttt{PROJECT\_VERSION\_PATCH}(\texttt{<project-name>\_VERSION\_PATCH})和\texttt{PROJECT\_VERSION\_TWEAK}(\texttt{PROJECT\_VERSION}0),将分别设置为\texttt{PROJECT\_VERSION}1, \texttt{PROJECT\_VERSION}2, \texttt{PROJECT\_VERSION}3和\texttt{PROJECT\_VERSION}4。
+\end{myInfoBox}
+
+\mySmallsection{更多信息}
+
+为了确保只有当CMake变量被认为是一个真正的常量时，才定义预处理器变量，可以使用\texttt{configure\_file}，在配置的头文件中使用\texttt{\#cmakedefin}而不是\texttt{\#define}。
+
+根据是否定义了CMake变量并将其计算为一个真正的常量，\texttt{\#cmakedefine YOUR\_VARIABLE}将被替换为\texttt{\#define YOUR\_VARIABLE …}或者\texttt{/* \#undef YOUR\_VARIABLE */}。还有\texttt{\#cmakedefine01}，将根据变量是否定义，将变量设置为\texttt{0}或\texttt{1}。
+
+
+% --- recipe 5: 6.5-chinese.md ---
+\section{6.5 从文件中记录项目版本}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-05} 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+这个示例的目的和前一个相似，但是出发点不同。我们计划是从文件中读取版本信息，而不是将其设置在CMakeLists.txt中。将版本保存在单独文件中的动机，是允许其他构建框架或开发工具使用独立于CMake的信息，而无需将信息复制到多个文件中。与CMake并行使用的构建框架的一个例子是Sphinx文档框架，它生成文档并将其部署到阅读文档服务中，以便在线提供代码文档。
+
+\mySmallsection{准备工作}
+
+我们将从一个名为\texttt{VERSION}的文件开始，其中包含以下内容:
+
+\begin{codebox}[text]
+2.0.1-rc-2
+\end{codebox}
+
+这一次，选择更安全的数据类型，并将\texttt{PROGRAM\_VERSION}定义为\texttt{version.hpp.in}中的字符串常量:
+
+\begin{codebox}[cpp]
+#pragma once
+#include <string>
+const std::string PROGRAM_VERSION = "@PROGRAM_VERSION@";
+\end{codebox}
+
+下面的源码(\texttt{example.cpp})，将包含生成的\texttt{ version.hpp}:
+
+\begin{codebox}[cpp]
+// provides PROGRAM_VERSION
+#include "version.hpp"
+#include <iostream>
+
+int main() {
+  std::cout << "This is output from code v" << PROGRAM_VERSION
+  << std::endl;
+  std::cout << "Hello CMake world!" << std::endl;
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+逐步来完成我们的任务:
+
+\begin{enumerate}
+\item CMakeLists.txt定义了最低版本、项目名称、语言和标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-05 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 从文件中读取版本信息如下:
+
+\begin{codebox}[cmake]
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROGRAM_VERSION)
+    string(STRIP "${PROGRAM_VERSION}" PROGRAM_VERSION)
+else()
+    message(FATAL_ERROR "File ${CMAKE_CURRENT_SOURCE_DIR}/VERSION not found")
+endif()
+\end{codebox}
+
+\item 配置头文件:
+
+\begin{codebox}[cmake]
+configure_file(
+  version.hpp.in
+  generated/version.hpp
+  @ONLY
+  )
+\end{codebox}
+
+\item 最后，定义了可执行文件及其依赖关系:
+
+\begin{codebox}[cmake]
+add_executable(example example.cpp)
+target_include_directories(example
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+  ) 
+\end{codebox}
+
+\item 进行测试:
+
+\begin{codebox}[cmake]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
+This is output from code v2.0.1-rc-2
+Hello CMake world!
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+我们使用以下构造，从一个名为VERSION的文件中读取版本字符串:
+
+\begin{codebox}[cmake]
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROGRAM_VERSION)
+  string(STRIP "${PROGRAM_VERSION}" PROGRAM_VERSION)
+else()
+    message(FATAL_ERROR "File ${CMAKE_CURRENT_SOURCE_DIR}/VERSION not found")
+endif()
+\end{codebox}
+
+这里，首先检查该文件是否存在，如果不存在，则发出错误消息。如果存在，将内容读入\texttt{PROGRAM\_VERSION}变量中，该变量会去掉尾部的空格。当设置了变量\texttt{PROGRAM\_VERSION}，就可以使用它来配置\texttt{version.hpp.in}，生成\texttt{ generated/version.hpp}:
+
+\begin{codebox}[cmake]
+configure_file(
+  version.hpp.in
+  generated/version.hpp
+  @ONLY
+  )
+\end{codebox}
+
+
+% --- recipe 6: 6.6-chinese.md ---
+\section{6.6 配置时记录Git Hash值}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-06} 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+大多数现代源代码存储库都使用Git作为版本控制系统进行跟踪，这可以归功于存储库托管平台GitHub的流行。因此，我们将在本示例中使用Git；然而，实际中会根据具体的动机和实现，可以转化为其他版本控制系统。我们以Git为例，提交的Git Hash决定了源代码的状态。因此，为了标记可执行文件，我们将尝试将Git Hash记录到可执行文件中，方法是将哈希字符串记录在一个头文件中，该头文件可以包含在代码中。
+
+\mySmallsection{准备工作}
+
+我们需要两个源文件，类似于前面的示例。其中一个将配置记录的Hash(\texttt{version.hpp.in})，详情如下:
+
+\begin{codebox}[cpp]
+#pragma once
+#include <string>
+const std::string GIT_HASH = "@GIT_HASH@";
+\end{codebox}
+
+还需要一个示例源文件(\texttt{example.cpp})，将Hash打印到屏幕上:
+
+\begin{codebox}[cpp]
+#include "version.hpp"
+
+#include <iostream>
+
+int main() {
+    std::cout << "This code has been configured from version " << GIT_HASH << std::endl;
+}
+\end{codebox}
+
+此示例还假定在Git存储库中至少有一个提交。因此，使用\texttt{git init}初始化这个示例，并使用\texttt{git add <filename>}，然后使用\texttt{git commit}创建提交，以便获得一个有意义的示例。
+
+\mySmallsection{具体实施}
+
+下面演示了从Git记录版本信息的步骤:
+
+\begin{enumerate}
+\item 定义项目和支持语言:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-06 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 定义\texttt{GIT\_HASH}变量:
+
+\begin{codebox}[cmake]
+# in case Git is not available, we default to "unknown"
+set(GIT_HASH "unknown")
+# find Git and if available set GIT_HASH variable
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} log -1 --pretty=format:%h
+    OUTPUT_VARIABLE GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    WORKING_DIRECTORY
+        ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+endif()
+message(STATUS "Git hash is ${GIT_HASH}")
+\end{codebox}
+
+\item \texttt{CMakeLists.txt}剩余的部分，类似于之前的示例:
+
+\begin{codebox}[cmake]
+# generate file version.hpp based on version.hpp.in
+configure_file(
+  version.hpp.in
+  generated/version.hpp
+  @ONLY
+  )
+# example code
+add_executable(example example.cpp)
+# needs to find the generated header file
+target_include_directories(example
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+\end{codebox}
+
+\item 验证输出(Hash不同):
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./example
+This code has been configured from version d58c64f
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+使用\texttt{find\_package(Git QUIET)}来检测系统上是否有可用的Git。如果有(\texttt{GIT\_FOUND}为\texttt{True})，运行一个Git命令: \texttt{\$\{GIT\_EXECUTABLE\} log -1 --pretty=format:\%h}。这个命令给出了当前提交Hash的简短版本。当然，这里我们可以灵活地运行Git命令。我们要求\texttt{execute\_process}命令将结果放入名为\texttt{GIT\_HASH}的变量中，然后删除任何尾随的空格。使用\texttt{ERROR\_QUIET}，如果Git命令由于某种原因失败，我们不会停止配置。
+
+由于Git命令可能会失败(源代码已经分发到Git存储库之外)，或者Git在系统上不可用，我们希望为这个变量设置一个默认值，如下所示:
+
+\begin{codebox}[cmake]
+set(GIT_HASH "unknown")
+\end{codebox}
+
+此示例有一个问题，Git Hash是在配置时记录的，而不是在构建时记录。下一个示例中，我们将演示如何实现后一种方法。
+
+
+% --- recipe 7: 6.7-chinese.md ---
+\section{6.7 构建时记录Git Hash值}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-6/recipe-07} 中找到，其中包含一个C++例子。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+前面的示例中，在配置时记录了代码存储库(Git Hash)的状态。然而，前一种方法有一个令人不满意的地方，如果在配置代码之后更改分支或提交更改，则源代码中包含的版本记录可能指向错误的Git Hash值。在这个示例中，我们将演示如何在构建时记录Git Hash(或者，执行其他操作)，以确保每次构建代码时都运行这些操作，因为我们可能只配置一次，但是会构建多次。
+
+\mySmallsection{准备工作}
+
+我们将使用与之前示例相同的\texttt{version.hpp.in}，只会对\texttt{example.cpp}文件进行修改，以确保它打印构建时Git提交Hash值:
+
+\begin{codebox}[cpp]
+#include "version.hpp"
+
+#include <iostream>
+
+int main() {
+    std::cout << "This code has been built from version " << GIT_HASH << std::endl;
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+将Git信息保存到\texttt{version.hpp}头文件在构建时需要进行以下操作:
+
+\begin{enumerate}
+\item 把前一个示例的\texttt{CMakeLists.txt}中的大部分代码移到一个单独的文件中，并将该文件命名为\texttt{git-hash.cmake}:
+
+\begin{codebox}[cmake]
+# in case Git is not available, we default to "unknown"
+set(GIT_HASH "unknown")
+# find Git and if available set GIT_HASH variable
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} log -1 --pretty=format:%h
+    OUTPUT_VARIABLE GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    )
+endif()
+message(STATUS "Git hash is ${GIT_HASH}")
+# generate file version.hpp based on version.hpp.in
+configure_file(
+  ${CMAKE_CURRENT_LIST_DIR}/version.hpp.in
+  ${TARGET_DIR}/generated/version.hpp
+  @ONLY
+  )
+\end{codebox}
+
+\item \texttt{CMakeLists.txt}熟悉的部分:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and language
+project(recipe-07 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# example code
+add_executable(example example.cpp)
+# needs to find the generated header file
+target_include_directories(example
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+  )
+\end{codebox}
+
+\item \texttt{CMakeLists.txt}的剩余部分，记录了每次编译代码时的\texttt{Git Hash}:
+
+\begin{codebox}[cmake]
+add_custom_command(
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp
+  ALL
+  COMMAND
+    ${CMAKE_COMMAND} -D TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/git-hash.cmake
+  WORKING_DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+# rebuild version.hpp every time
+add_custom_target(
+  get_git_hash
+  ALL
+  DEPENDS
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp
+  )
+# version.hpp has to be generated
+# before we start building example
+add_dependencies(example get_git_hash)
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+示例中，在构建时执行CMake代码。为此，定义了一个自定义命令:
+
+\begin{codebox}[cmake]
+add_custom_command(
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp
+  ALL
+  COMMAND
+    ${CMAKE_COMMAND} -D TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/git-hash.cmake
+  WORKING_DIRECTORY
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+\end{codebox}
+
+我们还定义了一个目标:
+
+\begin{codebox}[cmake]
+add_custom_target(
+  get_git_hash
+  ALL
+  DEPENDS
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/version.hpp
+  )
+\end{codebox}
+
+自定义命令调用CMake来执行\texttt{git-hash.cmake}脚本。这里使用CLI的\texttt{-P}开关，通过传入脚本的位置实现的。请注意，可以像往常一样使用CLI开关\texttt{-D}传递选项。\texttt{git-hash.cmake}脚本生成 \texttt{ \$\{TARGET\_DIR\}/generated/version.hpp }。自定义目标被添加到\texttt{ALL}目标中，并且依赖于自定义命令的输出。换句话说，当构建默认目标时，我们确保自定义命令已经运行。此外，自定义命令将\texttt{ALL}目标作为输出。这样，我们就能确保每次都会生成\texttt{ version.hpp}了。
+
+\mySmallsection{更多信息}
+
+我们可以改进配置，以便在记录的\texttt{Git Hash}外，包含其他的信息。检测构建环境是否“污染”(即是否包含未提交的更改和未跟踪的文件)，或者“干净”。可以使用\texttt{git describe --abbrev=7 --long --always --dirty --tags }检测这些信息。根据可重现性，甚至可以将Git的状态，完整输出记录到头文件中，我们将这些功能作为课后习题留给读者自己完成。
+
+

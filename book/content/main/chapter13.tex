@@ -1,0 +1,524 @@
+% chapterintro
+% ==============================
+% 第13章 导言：13.0-chinese.md
+本章主要内容有：
+
+\begin{itemize}
+\item 使用Visual Studio 2017构建CMake项目
+
+\item 交叉编译hello world示例
+
+\item 使用OpenMP并行化交叉编译Windows二进制文件
+
+\end{itemize}
+
+CMake本身不构建可执行程序和库。不过，CMake配置一个项目，并生成构建工具或框架用于构建项目的文件。在GNU/Linux和macOS上，CMake通常生成Unix Makefile(也存在替代方式)。在Windows上，通常生成Visual Studio项目文件或MinGW或MSYS Makefile。CMake包括本地构建工具或集成开发环境(IDE)的生成器。可以通过以下链接阅读更多关于它们的信息:\texthref{https://cmake.org/cmake/help/latest/manual/cmake-generators.7.html}
+
+可以使用\texttt{cmake -G}的方式来选择生成器：
+
+\begin{codebox}[shell]
+$ cmake -G "Visual Studio 15 2017"
+\end{codebox}
+
+不是每个平台上所有的生成器都可用，而且CMake在运行时获取平台信息。要查看当前平台上所有可用生成器的列表，请键入以下命令：
+
+\begin{codebox}[shell]
+$ cmake -G
+\end{codebox}
+
+本章中，我们不会使用所有生成器，但是本书中的大多数示例都使用了Unix Makefile、MSYS Makefile、Ninja和Visual Studio 15 2017进行了测试。
+
+我们将重点讨论Windows平台上的开发，将演示不使用命令行，如何使用Visual Studio 15 2017直接构建CMake项目。还会讨论如何在Linux或macOS系统上，交叉编译Windows的可执行文件。
+
+
+% --- recipe 1: 13.1-chinese.md ---
+\section{13.1 使用CMake构建Visual Studio 2017项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-13/recipe-01} 中找到，其中包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+早期版本的Visual Studio要求开发人员在不同的Windows版本中编辑源代码并运行CMake命令，但Visual Studio 2017引入了对CMake项目的内置支持( \texthref{https://aka.ms/cmake} )，它允许在同一个IDE中发生整个编码、配置、构建和测试工作流。本示例中，不需要使用命令行，我们将直接使用Visual Studio 2017构建一个简单的“hello world”CMake示例项目。
+
+\mySmallsection{准备工作}
+
+首先，下载并安装Visual Studio Community 2017 (https://www.visualstudio.com/downloads/ )。在撰写本文时，这个版本是免费的，有30天的试用期。我们将遵循的视频中的步骤:\texthref{https://www.youtube.com/watch?v=\_lKxJjV8r3Y}
+
+运行安装程序时，在左侧面板上选择\texttt{Desktop development with C++}，并在右侧的Summary面板上选择用于CMake的Visual C++工具：
+
+\myGraphic{0.9}{images/chapter13/13-1.png}{}
+
+Visual Studio 2017 15.4中，还可以为Linux平台进行构建。为此，在工具集中选择\texttt{Linux development with C++}:
+
+\myGraphic{0.9}{images/chapter13/13-2.png}{}
+
+选择后，只要配置Linux服务器的访问权限，就可以从Visual Studio中同时对Windows和Linux机器进行构建。我们不在本章中演示这种方法。
+
+这个示例中，我们将在Windows上构建一个二进制文件，我们的目标是配置和构建以下示例代码(\texttt{hello-world.cpp})：
+
+\begin{codebox}[cpp]
+#include <cstdlib>
+#include <iostream>
+#include <string>
+const std::string cmake_system_name = SYSTEM_NAME;
+int main() {
+  std::cout << "Hello from " << cmake_system_name << std::endl;
+  
+  return EXIT_SUCCESS;
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+创建相应的源码：
+
+\begin{enumerate}
+\item 创建一个目录，并将\texttt{hello-world.cpp}放在新目录中。
+
+\item 目录中，创建一个\texttt{CMakeLists.txt}文件，其内容为:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and language
+project(recipe-01 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+include(GNUInstallDirs)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
+# define executable and its source file
+add_executable(hello-world hello-world.cpp)
+# we will print the system name in the code
+target_compile_definitions(hello-world
+  PUBLIC
+    "SYSTEM_NAME=\"${CMAKE_SYSTEM_NAME}\""
+  )
+install(
+  TARGETS
+    hello-world
+  DESTINATION
+    ${CMAKE_INSTALL_BINDIR}
+  )
+\end{codebox}
+
+\item 打开Visual Studio 2017，然后通过下面的\texttt{File ->Open -> Folder}，选择到新创建的包含源文件和\texttt{CMakeLists.txt}的文件夹下。
+
+\item 打开文件夹后，请注意CMake配置步骤是如何运行的(面板底部)：
+
+\myGraphic{0.9}{images/chapter13/13-3.png}{}
+
+\item 现在，可以右键单击\texttt{CMakeLists.txt}(右面板)，并选择\texttt{Build}:
+
+\myGraphic{0.9}{images/chapter13/13-4.png}{}
+
+\item 构建项目(参见底部面板上的输出):
+
+\myGraphic{0.9}{images/chapter13/13-5.png}{}
+
+\item 这就成功地编译了可执行文件。下一小节中，我们将学习如何定位可执行文件，并更改构建和安装路径。
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+我们已经看到Visual Studio 2017能很好地对接CMake，并且已经能够在IDE中配置和构建代码。除了构建步骤之外，还可以运行安装或测试步骤。可以通过右键单击\texttt{CMakeLists.txt}(右面板)，访问这些文件。
+
+然而，配置步骤是自动运行的，我们可能更想去修改配置选项。我们还想知道实际的构建和安装路径，以便测试我们的可执行文件。为此，我们可以选择\texttt{CMake -> Change CMake Settings}，如下图所示:
+
+\myGraphic{0.9}{images/chapter13/13-6.png}{}
+
+面板左上角，可以检查和修改生成器(本例中是Ninja)、设置、参数以及路径。构建路径在前面的显示中可以看到。这些设置被分组为构建类型(\texttt{x86-Debug}、\texttt{x86-Release}等等)，我们可以在面板栏顶部的中间部分，通过选择切换构建类型。
+
+现在知道了构建路径，可以测试编译后的可执行文件:
+
+\begin{codebox}[shell]
+$ ./hello-world.exe
+
+Hello from Windows
+\end{codebox}
+
+当然，构建和安装路径可以进行修改。
+
+\mySmallsection{更多信息}
+
+\begin{itemize}
+\item Visual Studio支持CMake: \texthref{https://aka.ms/cmake}
+
+\item 使用CMake，基于Visual C++开发Linux应用：\texthref{https://blogs.msdn.microsoft.com/vcblog/2017/08/25/visual-c-for-linux-development-with-cmake/}
+
+\item Visual Studio官方文档：\texthref{https://www.visualstudio.com/vs/features/ide/}
+
+\end{itemize}
+
+
+% --- recipe 2: 13.2-chinese.md ---
+\section{13.2 交叉编译hello world示例}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-13/recipe-01} 中找到，其中包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+这个示例中，我们将重用“Hello World”示例，并将代码从Linux或macOS交叉编译到Windows。换句话说，我们将在Linux或macOS上配置和编译代码，并生成Windows平台的可执行文件
+
+\mySmallsection{准备工作}
+
+我们从\texttt{hello world}示例(\texttt{hello-world.cpp})开始：
+
+\begin{codebox}[cpp]
+#include <iostream>
+#include <omp.h>
+#include <string>
+
+int main(int argc, char *argv[])
+{
+  std::cout << "number of available processors: " << omp_get_num_procs()
+            << std::endl;
+  std::cout << "number of threads: " << omp_get_max_threads() << std::endl;
+
+  auto n = std::stol(argv[1]);
+  std::cout << "we will form sum of numbers from 1 to " << n << std::endl;
+
+  // start timer
+  auto t0 = omp_get_wtime();
+  
+  auto s = 0LL;
+#pragma omp parallel for reduction(+ : s)
+  for (auto i = 1; i <= n; i++)
+  {
+    s += i;
+  }
+  // stop timer
+  auto t1 = omp_get_wtime();
+
+  std::cout << "sum: " << s << std::endl;
+  std::cout << "elapsed wall clock time: " << t1 - t0 << " seconds" << std::endl;
+  
+  return 0;
+}
+\end{codebox}
+
+我们还将使用与前一个示例相同的\texttt{CMakeLists.txt}：
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+
+# project name and language
+project(recipe-01 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(GNUInstallDirs)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
+
+# define executable and its source file
+add_executable(hello-world hello-world.cpp)
+
+# we will print the system name in the code
+target_compile_definitions(hello-world
+  PUBLIC
+    "SYSTEM_NAME=\"${CMAKE_SYSTEM_NAME}\""
+  )
+
+install(
+  TARGETS
+    hello-world
+  DESTINATION
+    ${CMAKE_INSTALL_BINDIR}
+  )
+\end{codebox}
+
+为了交叉编译源代码，我们需要安装一个C++交叉编译器，也可以为C和Fortran安装一个交叉编译器。可以使用打包的MinGW编译器，作为打包的交叉编译器的替代方案。还可以使用MXE (M cross environment)从源代码构建一套交叉编译器：\texthref{http://mxe.cc}
+
+\mySmallsection{具体实施}
+
+我们将按照以下步骤，在这个交叉编译的“hello world”示例中创建三个文件:
+
+\begin{enumerate}
+\item 创建一个文件夹，其中包括\texttt{hello-world.cpp}和\texttt{CMakeLists.txt}。
+
+\item 再创建一个\texttt{toolchain.cmake}文件，其内容为：
+
+\begin{codebox}[cmake]
+# the name of the target operating system
+set(CMAKE_SYSTEM_NAME Windows)
+# which compilers to use
+set(CMAKE_CXX_COMPILER i686-w64-mingw32-g++)
+# adjust the default behaviour of the find commands:
+# search headers and libraries in the target environment
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+# search programs in the host environment
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+\end{codebox}
+
+\item 将\texttt{CMAKE\_CXX\_COMPILER}设置为对应的编译器(路径)。
+
+\item 然后，通过将\texttt{CMAKE\_TOOLCHAIN\_FILE}指向工具链文件，从而配置代码(本例中，使用了从源代码构建的MXE编译器):
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake -D CMAKE_TOOLCHAIN_FILE=toolchain.cmake ..
+-- The CXX compiler identification is GNU 5.4.0
+-- Check for working CXX compiler: /home/user/mxe/usr/bin/i686-w64-mingw32.static-g++
+-- Check for working CXX compiler: /home/user/mxe/usr/bin/i686-w64-mingw32.static-g++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-recipes/chapter-13/recipe-01/cxx-example/build
+\end{codebox}
+
+\item 现在，构建可执行文件：
+
+\begin{codebox}[shell]
+$ cmake --build .
+Scanning dependencies of target hello-world
+[ 50%] Building CXX object CMakeFiles/hello-world.dir/hello-world.cpp.obj
+[100%] Linking CXX executable bin/hello-world.exe
+[100%] Built target hello-world
+\end{codebox}
+
+\item 注意，我们已经在Linux上获得\texttt{hello-world.exe}。将二进制文件复制到Windows上。
+
+\item 在WIndows上可以看到如下的输出：
+
+\begin{codebox}[shell]
+Hello from Windows
+\end{codebox}
+
+\item 如你所见，这个二进制可以在Windows下工作。
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+由于与目标环境(Windows)不同的主机环境(在本例中是GNU/Linux或macOS)上配置和构建代码，所以我们需要向CMake提供关于目标环境的信息，这些信息记录在\texttt{toolchain.cmake}文件中( \texthref{https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html\#cross-compiling} )。
+
+首先，提供目标操作系统的名称:
+
+\begin{codebox}[cmake]
+set(CMAKE_SYSTEM_NAME Windows)
+\end{codebox}
+
+然后，指定编译器：
+
+\begin{codebox}[cmake]
+set(CMAKE_C_COMPILER i686-w64-mingw32-gcc)
+set(CMAKE_CXX_COMPILER i686-w64-mingw32-g++)
+set(CMAKE_Fortran_COMPILER i686-w64-mingw32-gfortran)
+\end{codebox}
+
+这个例子中，我们不需要检测任何库或头文件。如果必要的话，我们将使用以下命令指定根路径:
+
+\begin{codebox}[cmake]
+set(CMAKE_FIND_ROOT_PATH /path/to/target/environment)
+\end{codebox}
+
+例如，提供MXE编译器的安装路径。
+
+最后，调整\texttt{find}命令的默认行为。我们指示CMake在目标环境中查找头文件和库文件:
+
+\begin{codebox}[cmake]
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+\end{codebox}
+
+在主机环境中的搜索程序：
+
+\begin{codebox}[cmake]
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+\end{codebox}
+
+\mySmallsection{更多信息}
+
+有关各种选项的更详细讨论，请参见： \texthref{https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html\#cross-compiling}
+
+
+% --- recipe 3: 13.3-chinese.md ---
+\section{13.3 使用OpenMP并行化交叉编译Windows二进制文件}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-13/recipe-02} 中找到，其中包含一个C++示例和Fortran示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+在这个示例中，我们将交叉编译一个OpenMP并行化的Windows二进制文件。
+
+\mySmallsection{准备工作}
+
+我们将使用第3章第5节中的未修改的源代码，示例代码将所有自然数加到N (\texttt{example.cpp}):
+
+\begin{codebox}[cpp]
+#include <iostream>
+#include <omp.h>
+#include <string>
+
+int main(int argc, char *argv[]) {
+  std::cout << "number of available processors: " << omp_get_num_procs()
+  << std::endl;
+  std::cout << "number of threads: " << omp_get_max_threads() << std::endl;
+
+  auto n = std::stol(argv[1]);
+  std::cout << "we will form sum of numbers from 1 to " << n << std::endl;
+
+  // start timer
+  auto t0 = omp_get_wtime();
+
+  auto s = 0LL;
+  #pragma omp parallel for reduction(+ : s)
+  for (auto i = 1; i <= n; i++) {
+    s += i;
+  }
+
+  // stop timer
+  auto t1 = omp_get_wtime();
+
+  std::cout << "sum: " << s << std::endl;
+  std::cout << "elapsed wall clock time: " << t1 - t0 << " seconds" << std::endl;
+
+  return 0;
+}
+\end{codebox}
+
+\texttt{CMakeLists.txt}检测OpenMP并行环境方面基本没有变化，除了有一个额外的安装目标:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+
+# project name and language
+project(recipe-02 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(GNUInstallDirs)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
+
+find_package(OpenMP REQUIRED)
+
+add_executable(example example.cpp)
+
+target_link_libraries(example
+  PUBLIC
+    OpenMP::OpenMP_CXX
+  )
+
+install(
+  TARGETS
+    example
+  DESTINATION
+    ${CMAKE_INSTALL_BINDIR}
+  )
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+通过以下步骤，我们将设法交叉编译一个OpenMP并行化的Windows可执行文件:
+
+\begin{enumerate}
+\item 创建一个包含\texttt{example.cpp}和\texttt{CMakeLists.txt}的目录。
+
+\item 我们将使用与之前例子相同的\texttt{toolchain.cmake}:
+
+\begin{codebox}[cmake]
+# the name of the target operating system
+set(CMAKE_SYSTEM_NAME Windows)
+# which compilers to use
+set(CMAKE_CXX_COMPILER i686-w64-mingw32-g++)
+# adjust the default behaviour of the find commands:
+# search headers and libraries in the target environment
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+# search programs in the host environment
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+\end{codebox}
+
+\item 将\texttt{CMAKE\_CXX\_COMPILER}设置为对应的编译器(路径)。
+
+\item 然后，通过\texttt{CMAKE\_TOOLCHAIN\_FILE}指向工具链文件来配置代码(本例中，使用了从源代码构建的MXE编译器):
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake -D CMAKE_TOOLCHAIN_FILE=toolchain.cmake ..
+-- The CXX compiler identification is GNU 5.4.0
+-- Check for working CXX compiler: /home/user/mxe/usr/bin/i686-w64-mingw32.static-g++
+-- Check for working CXX compiler: /home/user/mxe/usr/bin/i686-w64-mingw32.static-g++ -- works
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found OpenMP_CXX: -fopenmp (found version "4.0")
+-- Found OpenMP: TRUE (found version "4.0")
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-recipes/chapter-13/recipe-02/cxx-example/build
+\end{codebox}
+
+\item 构建可执行文件：
+
+\begin{codebox}[shell]
+$ cmake --build .
+Scanning dependencies of target example
+[ 50%] Building CXX object CMakeFiles/example.dir/example.cpp.obj
+[100%] Linking CXX executable bin/example.exe
+[100%] Built target example
+\end{codebox}
+
+\item 将\texttt{example.exe}拷贝到Windows环境下。
+
+\item Windows环境下，将看到如下的输出：
+
+\begin{codebox}[shell]
+$ set OMP_NUM_THREADS=1
+$ example.exe 1000000000
+number of available processors: 2
+number of threads: 1
+we will form sum of numbers from 1 to 1000000000
+sum: 500000000500000000
+elapsed wall clock time: 2.641 seconds
+$ set OMP_NUM_THREADS=2
+$ example.exe 1000000000
+number of available processors: 2
+number of threads: 2
+we will form sum of numbers from 1 to 1000000000
+sum: 500000000500000000
+elapsed wall clock time: 1.328 seconds
+\end{codebox}
+
+\item 正如我们所看到的，二进制文件可以在Windows上工作，而且由于OpenMP并行化，我们可以观察到加速效果!
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+我们已经成功地使用一个简单的工具链进行交叉编译了一个可执行文件，并可以在Windows平台上并行执行。我们可以通过设置\texttt{OMP\_NUM\_THREADS}来指定OpenMP线程的数量。从一个线程到两个线程，我们观察到运行时从2.6秒减少到1.3秒。有关工具链文件的讨论，请参阅前面的示例。
+
+\mySmallsection{更多信息}
+
+可以交叉编译一组目标平台(例如：Android)，可以参考：\texthref{https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html}
+
+

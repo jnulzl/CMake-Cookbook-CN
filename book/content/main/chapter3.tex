@@ -1,0 +1,1929 @@
+% chapterintro
+% ==============================
+% 第3章 导言：3.0-chinese.md
+本章中主要内容有:
+
+\begin{itemize}
+\item 检测Python解释器
+
+\item 检测Python库
+
+\item 检测Python模块和包
+
+\item 检测BLAS和LAPACK数学库
+
+\item 检测OpenMP并行环境
+
+\item 检测MPI并行环境
+
+\item 检测Eigen库
+
+\item 检测Boost库
+
+\item 检测外部库:Ⅰ. 使用pkg-config
+
+\item 检测外部库:Ⅱ. 书写find模块
+
+\end{itemize}
+
+我们的项目常常会依赖于其他项目和库。本章将演示，如何检测外部库、框架和项目，以及如何链接到这些库。CMake有一组预打包模块，用于检测常用库和程序，例如：Python和Boost。可以使用\texttt{cmake --help-module-list}获得现有模块的列表。但是，不是所有的库和程序都包含在其中，有时必须自己编写检测脚本。本章将讨论相应的工具，了解CMake的\texttt{find}族命令:
+
+\begin{itemize}
+\item \textbf{find\_file}：在相应路径下查找命名文件
+
+\item \textbf{find\_library}：查找一个库文件
+
+\item \textbf{find\_package}：从外部项目查找和加载设置
+
+\item \textbf{find\_path}：查找包含指定文件的目录
+
+\item \textbf{find\_program}：找到一个可执行程序
+
+\end{itemize}
+
+\begin{myInfoBox}
+\textbf{NOTE}：可以使用\texttt{--help-command}命令行显示CMake内置命令的打印文档。
+\end{myInfoBox}
+
+
+% --- recipe 1: 3.1-chinese.md ---
+\section{3.1 检测Python解释器}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-01} 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Python是一种非常流行的语言。许多项目用Python编写的工具，从而将主程序和库打包在一起，或者在配置或构建过程中使用Python脚本。这种情况下，确保运行时对Python解释器的依赖也需要得到满足。本示例将展示如何检测和使用Python解释器。
+
+我们将介绍\texttt{find\_package}命令，这个命令将贯穿本章。
+
+\mySmallsection{具体实施}
+
+我们将逐步建立\texttt{CMakeLists.txt}文件:
+
+\begin{enumerate}
+\item 首先，定义CMake最低版本和项目名称。注意，这里不需要任何语言支持:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES NONE)
+\end{codebox}
+
+\item 然后，使用\texttt{find\_package}命令找到Python解释器:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+\end{codebox}
+
+\item 然后，执行Python命令并捕获它的输出和返回值:
+
+\begin{codebox}[cmake]
+execute_process(
+  COMMAND
+    ${PYTHON_EXECUTABLE} "-c" "print('Hello, world!')"
+  RESULT_VARIABLE _status
+  OUTPUT_VARIABLE _hello_world
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+\end{codebox}
+
+\item 最后，打印Python命令的返回值和输出:
+
+\begin{codebox}[cmake]
+message(STATUS "RESULT_VARIABLE is: ${_status}")
+message(STATUS "OUTPUT_VARIABLE is: ${_hello_world}")
+\end{codebox}
+
+\item 配置项目:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+-- Found PythonInterp: /usr/bin/python (found version "3.6.5")
+-- RESULT_VARIABLE is: 0
+-- OUTPUT_VARIABLE is: Hello, world!
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/user/cmake-cookbook/chapter-03/recipe-01/example/build
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{find\_package}是用于发现和设置包的CMake模块的命令。这些模块包含CMake命令，用于标识系统标准位置中的包。CMake模块文件称为\texttt{ Find<name>.cmake}，当调用\texttt{find\_package(<name>)}时，模块中的命令将会运行。
+
+除了在系统上实际查找包模块之外，查找模块还会设置了一些有用的变量，反映实际找到了什么，也可以在自己的\texttt{CMakeLists.txt}中使用这些变量。对于Python解释器，相关模块为\texttt{FindPythonInterp.cmake}附带的设置了一些CMake变量:
+
+\begin{itemize}
+\item \textbf{PYTHONINTERP\_FOUND}：是否找到解释器
+
+\item \textbf{PYTHON\_EXECUTABLE}：Python解释器到可执行文件的路径
+
+\item \textbf{PYTHON\_VERSION\_STRING}：Python解释器的完整版本信息
+
+\item \textbf{PYTHON\_VERSION\_MAJOR}：Python解释器的主要版本号
+
+\item \textbf{PYTHON\_VERSION\_MINOR} ：Python解释器的次要版本号
+
+\item \textbf{PYTHON\_VERSION\_PATCH}：Python解释器的补丁版本号
+
+\end{itemize}
+
+可以强制CMake，查找特定版本的包。例如，要求Python解释器的版本大于或等于2.7：\texttt{find\_package(PythonInterp 2.7)}
+
+可以强制满足依赖关系:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+\end{codebox}
+
+如果在查找位置中没有找到适合Python解释器的可执行文件，CMake将中止配置。
+
+\begin{myInfoBox}
+\textbf{TIPS}：CMake有很多查找软件包的模块。我们建议在CMake在线文档中查询\texttt{Find<package>.cmake}模块，并在使用它们之前详细阅读它们的文档。\texttt{find\_package}命令的文档可以参考 \texthref{https://cmake.org/cmake/help/v3.5/command/find\_ackage.html} 。在线文档的一个很好的替代方法是浏览 \texthref{https://github.com/Kitware/CMake/tree/master/Modules} 中的CMake模块源代码——它们记录了模块使用的变量，以及模块可以在\texttt{CMakeLists.txt}中使用的变量。
+\end{myInfoBox}
+
+\mySmallsection{更多信息}
+
+软件包没有安装在标准位置时，CMake无法正确定位它们。用户可以使用CLI的\texttt{-D}参数传递相应的选项，告诉CMake查看特定的位置。Python解释器可以使用以下配置:
+
+\begin{codebox}[shell]
+$ cmake -D PYTHON_EXECUTABLE=/custom/location/python ..
+\end{codebox}
+
+这将指定非标准\texttt{/custom/location/python}安装目录中的Python可执行文件。
+
+\begin{myInfoBox}
+\textbf{NOTE}：每个包都是不同的，\texttt{Find<package>.cmake}模块试图提供统一的检测接口。当CMake无法找到模块包时，我们建议您阅读相应检测模块的文档，以了解如何正确地使用CMake模块。可以在终端中直接浏览文档，本例中可使用\texttt{cmake --help-module FindPythonInterp}查看。
+\end{myInfoBox}
+
+除了检测包之外，我们还想提到一个便于打印变量的helper模块。本示例中，我们使用了以下方法:
+
+\begin{codebox}[cmake]
+message(STATUS "RESULT_VARIABLE is: ${_status}")
+message(STATUS "OUTPUT_VARIABLE is: ${_hello_world}")
+\end{codebox}
+
+使用以下工具进行调试:
+
+\begin{codebox}[cmake]
+include(CMakePrintHelpers)
+cmake_print_variables(_status _hello_world)
+\end{codebox}
+
+将产生以下输出:
+
+\begin{codebox}[shell]
+-- _status="0" ; _hello_world="Hello, world!"
+\end{codebox}
+
+有关打印属性和变量的更多信息，请参考 \texthref{https://cmake.org/cmake/help/v3.5/module/CMakePrintHelpers.html} 。
+
+
+% --- recipe 2: 3.2-chinese.md ---
+\section{3.2 检测Python库}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/devcafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-02} 中找到，有一个C示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+可以使用Python工具来分析和操作程序的输出。然而，还有更强大的方法可以将解释语言(如Python)与编译语言(如C或C++)组合在一起使用。一种是扩展Python，通过编译成共享库的C或C++模块在这些类型上提供新类型和新功能，这是第9章的主题。另一种是将Python解释器嵌入到C或C++程序中。两种方法都需要下列条件:
+
+\begin{itemize}
+\item Python解释器的工作版本
+
+\item Python头文件Python.h的可用性
+
+\item Python运行时库libpython
+
+\end{itemize}
+
+三个组件所使用的Python版本必须相同。我们已经演示了如何找到Python解释器；本示例中，我们将展示另外两种方式。
+
+\mySmallsection{准备工作}
+
+我们将一个简单的Python代码，嵌入到C程序中，可以在Python文档页面上找到。源文件称为\texttt{hello-embedded-python.c}:
+
+\begin{codebox}[c]
+#include <Python.h>
+
+int main(int argc, char *argv[]) {
+  Py_SetProgramName(argv[0]); /* optional but recommended */
+  Py_Initialize();
+  PyRun_SimpleString("from time import time,ctime\n"
+                     "print 'Today is',ctime(time())\n");
+  Py_Finalize();
+  return 0;
+}
+\end{codebox}
+
+此代码将在程序中初始化Python解释器的实例，并使用Python的\texttt{time}模块，打印日期。
+
+\begin{myInfoBox}
+\textbf{NOTE}：嵌入代码可以在Python文档页面的 \texthref{https://docs.python.org/2/extending/embedding.html} 和 \texthref{https://docs.python.org/3/extending/embedding.html} 中找到。
+\end{myInfoBox}
+
+\mySmallsection{具体实施}
+
+以下是\texttt{CMakeLists.txt}中的步骤:
+
+\begin{enumerate}
+\item 包含CMake最低版本、项目名称和所需语言:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02 LANGUAGES C)
+\end{codebox}
+
+\item 制使用C99标准，这不严格要求与Python链接，但有时你可能需要对Python进行连接:
+
+\begin{codebox}[cmake]
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 找到Python解释器。这是一个\texttt{REQUIRED}依赖:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+\end{codebox}
+
+\item 找到Python头文件和库的模块，称为\texttt{FindPythonLibs.cmake}:
+
+\begin{codebox}[cmake]
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+\end{codebox}
+
+\item 使用\texttt{hello-embedded-python.c}源文件，添加一个可执行目标:
+
+\begin{codebox}[cmake]
+add_executable(hello-embedded-python hello-embedded-python.c)
+\end{codebox}
+
+\item 可执行文件包含\texttt{Python.h}头文件。因此，这个目标的\texttt{include}目录必须包含Python的\texttt{include}目录，可以通过\texttt{PYTHON\_INCLUDE\_DIRS}变量进行指定:
+
+\begin{codebox}[cmake]
+target_include_directories(hello-embedded-python
+  PRIVATE
+    ${PYTHON_INCLUDE_DIRS}
+    )
+\end{codebox}
+
+\item 最后，将可执行文件链接到Python库，通过\texttt{PYTHON\_LIBRARIES}变量访问:
+
+\begin{codebox}[cmake]
+target_link_libraries(hello-embedded-python
+  PRIVATE
+    ${PYTHON_LIBRARIES}
+    )
+\end{codebox}
+
+\item 现在，进行构建:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+...
+-- Found PythonInterp: /usr/bin/python (found version "3.6.5")
+-- Found PythonLibs: /usr/lib/libpython3.6m.so (found suitable exact version "3.6.5")
+\end{codebox}
+
+\item 最后，执行构建，并运行可执行文件:
+
+\begin{codebox}[shell]
+$ cmake --build .
+$ ./hello-embedded-python
+Today is Thu Jun 7 22:26:02 2018
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{FindPythonLibs.cmake}模块将查找Python头文件和库的标准位置。由于，我们的项目需要这些依赖项，如果没有找到这些依赖项，将停止配置，并报出错误。
+
+注意，我们显式地要求CMake检测安装的Python可执行文件。这是为了确保可执行文件、头文件和库都有一个匹配的版本。这对于不同版本，可能在运行时导致崩溃。我们通过\texttt{FindPythonInterp.cmake}中定义的\texttt{PYTHON\_VERSION\_MAJOR}和\texttt{PYTHON\_VERSION\_MINOR}来实现:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+\end{codebox}
+
+使用\texttt{EXACT}关键字，限制CMake检测特定的版本，在本例中是匹配的相应Python版本的包括文件和库。我们可以使用\texttt{PYTHON\_VERSION\_STRING}变量，进行更接近的匹配:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_STRING} EXACT REQUIRED)
+\end{codebox}
+
+\mySmallsection{更多信息}
+
+当Python不在标准安装目录中，我们如何确定Python头文件和库的位置是正确的？对于Python解释器，可以通过CLI的\texttt{-D}选项传递\texttt{PYTHON\_LIBRARY}和\texttt{PYTHON\_INCLUDE\_DIR}选项来强制CMake查找特定的目录。这些选项指定了以下内容:
+
+\begin{itemize}
+\item \textbf{PYTHON\_LIBRARY}：指向Python库的路径
+
+\item \textbf{PYTHON\_INCLUDE\_DIR}：Python.h所在的路径
+
+\end{itemize}
+
+这样，就能获得所需的Python版本。
+
+\begin{myInfoBox}
+\textbf{TIPS}：有时需要将\texttt{-D PYTHON\_EXECUTABLE}、\texttt{-D PYTHON\_LIBRARY}和\texttt{-D PYTHON\_INCLUDE\_DIR}传递给CMake CLI，以便找到及定位相应的版本的组件。
+\end{myInfoBox}
+
+要将Python解释器及其开发组件匹配为完全相同的版本可能非常困难，对于那些将它们安装在非标准位置或系统上安装了多个版本的情况尤其如此。CMake 3.12版本中增加了新的Python检测模块，旨在解决这个棘手的问题。我们\texttt{CMakeLists.txt}的检测部分也将简化为:
+
+\texttt{find\_package(Python COMPONENTS Interpreter Development REQUIRED)}
+
+我们建议您阅读新模块的文档，地址是: \texthref{https://cmake.org/cmake/help/v3.12/module/FindPython.html}
+
+
+% --- recipe 3: 3.3-chinese.md ---
+\section{3.3 检测Python模块和包}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/devcafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-03} 中找到，包含一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+前面的示例中，我们演示了如何检测Python解释器，以及如何编译一个简单的C程序(嵌入Python解释器)。通常，代码将依赖于特定的Python模块，无论是Python工具、嵌入Python的程序，还是扩展Python的库。例如，科学界非常流行使用NumPy处理矩阵问题。依赖于Python模块或包的项目中，确定满足对这些Python模块的依赖非常重要。本示例将展示如何探测用户的环境，以找到特定的Python模块和包。
+
+\mySmallsection{准备工作}
+
+我们将尝试在C++程序中嵌入一个稍微复杂一点的例子。这个示例再次引用\href{https://docs.python.org/3.5/extending/embedding.html\#pureembedded}{Python在线文档}，并展示了如何通过调用编译后的C++可执行文件，来执行用户定义的Python模块中的函数。
+
+Python 3示例代码(\texttt{Py3-pure-embedding.cpp})包含以下源代码(请参见\texthref{https://docs.python.org/2/extending/embedding.html\#pure-embedded} 与Python 2代码等效):
+
+\begin{codebox}[cpp]
+#include <Python.h>
+int main(int argc, char* argv[]) {
+  PyObject* pName, * pModule, * pDict, * pFunc;
+  PyObject* pArgs, * pValue;
+  int i;
+  if (argc < 3) {
+    fprintf(stderr, "Usage: pure-embedding pythonfile funcname [args]\n");
+    return 1;
+  }
+  Py_Initialize();
+  PyRun_SimpleString("import sys");
+  PyRun_SimpleString("sys.path.append(\".\")");
+  pName = PyUnicode_DecodeFSDefault(argv[1]);
+  /* Error checking of pName left out */
+  pModule = PyImport_Import(pName);
+  Py_DECREF(pName);
+  if (pModule != NULL) {
+    pFunc = PyObject_GetAttrString(pModule, argv[2]);
+    /* pFunc is a new reference */
+    if (pFunc && PyCallable_Check(pFunc)) {
+      pArgs = PyTuple_New(argc - 3);
+      for (i = 0; i < argc - 3; ++i) {
+        pValue = PyLong_FromLong(atoi(argv[i + 3]));
+        if (!pValue) {
+          Py_DECREF(pArgs);
+          Py_DECREF(pModule);
+          fprintf(stderr, "Cannot convert argument\n");
+          return 1;
+        }
+        /* pValue reference stolen here: */
+        PyTuple_SetItem(pArgs, i, pValue);
+      }
+      pValue = PyObject_CallObject(pFunc, pArgs);
+      Py_DECREF(pArgs);
+      if (pValue != NULL) {
+        printf("Result of call: %ld\n", PyLong_AsLong(pValue));
+        Py_DECREF(pValue);
+      }
+      else {
+        Py_DECREF(pFunc);
+        Py_DECREF(pModule);
+        PyErr_Print();
+        fprintf(stderr, "Call failed\n");
+        return 1;
+      }
+    }
+    else {
+      if (PyErr_Occurred())
+        PyErr_Print();
+      fprintf(stderr, "Cannot find function \"%s\"\n", argv[2]);
+    }
+    Py_XDECREF(pFunc);
+    Py_DECREF(pModule);
+  }
+  else {
+    PyErr_Print();
+    fprintf(stderr, "Failed to load \"%s\"\n", argv[1]);
+    return 1;
+  }
+  Py_Finalize();
+  return 0;
+}
+\end{codebox}
+
+我们希望嵌入的Python代码(\texttt{use\_numpy.py})使用NumPy设置一个矩阵，所有矩阵元素都为1.0:
+
+\begin{codebox}[python]
+import numpy as np
+def print_ones(rows, cols):
+  A = np.ones(shape=(rows, cols), dtype=float)
+  print(A)
+  
+  # we return the number of elements to verify
+  # that the C++ code is able to receive return values
+  num_elements = rows*cols
+  return(num_elements)
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+下面的代码中，我们能够使用CMake检查NumPy是否可用。我们需要确保Python解释器、头文件和库在系统上是可用的。然后，将再来确认NumPy的可用性：
+
+\begin{enumerate}
+\item 首先，我们定义了最低CMake版本、项目名称、语言和C++标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 查找解释器、头文件和库的方法与前面的方法完全相同:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+\end{codebox}
+
+\item 正确打包的Python模块，指定安装位置和版本。可以在\texttt{CMakeLists.txt}中执行Python脚本进行探测:
+
+\begin{codebox}[cmake]
+execute_process(
+  COMMAND
+    ${PYTHON_EXECUTABLE} "-c" "import re, numpy; print(re.compile('/__init__.py.*').sub('',numpy.__file__))"
+  RESULT_VARIABLE _numpy_status
+  OUTPUT_VARIABLE _numpy_location
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+\end{codebox}
+
+\item 如果找到NumPy，则\texttt{\_numpy\_status}变量为整数，否则为错误的字符串，而\texttt{\_numpy\_location}将包含NumPy模块的路径。如果找到NumPy，则将它的位置保存到一个名为\texttt{NumPy}的新变量中。注意，新变量被缓存，这意味着CMake创建了一个持久性变量，用户稍后可以修改该变量:
+
+\begin{codebox}[cmake]
+if(NOT _numpy_status)
+    set(NumPy ${_numpy_location} CACHE STRING "Location of NumPy")
+endif()
+\end{codebox}
+
+\item 下一步是检查模块的版本。同样，我们在\texttt{CMakeLists.txt}中施加了一些Python魔法，将版本保存到\texttt{\_numpy\_version}变量中:
+
+\begin{codebox}[cmake]
+execute_process(
+  COMMAND
+    ${PYTHON_EXECUTABLE} "-c" "import numpy; print(numpy.__version__)"
+  OUTPUT_VARIABLE _numpy_version
+  ERROR_QUIET
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+\end{codebox}
+
+\item 最后，\texttt{FindPackageHandleStandardArgs}的CMake包以正确的格式设置\texttt{NumPy\_FOUND}变量和输出信息:
+
+\begin{codebox}[cmake]
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(NumPy
+  FOUND_VAR NumPy_FOUND
+  REQUIRED_VARS NumPy
+  VERSION_VAR _numpy_version
+  )
+\end{codebox}
+
+\item 一旦正确的找到所有依赖项，我们就可以编译可执行文件，并将其链接到Python库:
+
+\begin{codebox}[cmake]
+add_executable(pure-embedding "")
+target_sources(pure-embedding
+  PRIVATE
+    Py${PYTHON_VERSION_MAJOR}-pure-embedding.cpp
+  )
+target_include_directories(pure-embedding
+  PRIVATE
+    ${PYTHON_INCLUDE_DIRS}
+  )
+target_link_libraries(pure-embedding
+  PRIVATE
+    ${PYTHON_LIBRARIES}
+  )
+\end{codebox}
+
+\item 我们还必须保证\texttt{use\_numpy.py}在\texttt{build}目录中可用:
+
+\begin{codebox}[cmake]
+add_custom_command(
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+     ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+  )
+# make sure building pure-embedding triggers the above custom command
+target_sources(pure-embedding
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  )
+\end{codebox}
+
+\item 现在，我们可以测试嵌入的代码:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+-- ...
+-- Found PythonInterp: /usr/bin/python (found version "3.6.5")
+-- Found PythonLibs: /usr/lib/libpython3.6m.so (found suitable exact version "3.6.5")
+-- Found NumPy: /usr/lib/python3.6/site-packages/numpy (found version "1.14.3")
+$ cmake --build .
+$ ./pure-embedding use_numpy print_ones 2 3
+[[1. 1. 1.]
+[1. 1. 1.]]
+Result of call: 6
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+例子中有三个新的CMake命令，需要\texttt{include(FindPackageHandleStandardArgs)}：
+
+\begin{itemize}
+\item \texttt{execute\_process}
+
+\item \texttt{add\_custom\_command}
+
+\item \texttt{find\_package\_handle\_standard\_args}
+
+\end{itemize}
+
+\texttt{execute\_process}将作为通过子进程执行一个或多个命令。最后，子进程返回值将保存到变量作为参数，传递给\texttt{RESULT\_VARIABLE}，而管道标准输出和标准错误的内容将被保存到变量作为参数传递给\texttt{OUTPUT\_VARIABLE}和\texttt{ERROR\_VARIABLE}。\texttt{execute\_process}可以执行任何操作，并使用它们的结果来推断系统配置。本例中，用它来确保NumPy可用，然后获得模块版本。
+
+\texttt{find\_package\_handle\_standard\_args}提供了，用于处理与查找相关程序和库的标准工具。引用此命令时，可以正确的处理与版本相关的选项(\texttt{REQUIRED}和\texttt{EXACT})，而无需更多的CMake代码。稍后将介绍\texttt{QUIET}和\texttt{COMPONENTS}选项。本示例中，使用了以下方法:
+
+\begin{codebox}[cmake]
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(NumPy
+  FOUND_VAR NumPy_FOUND
+  REQUIRED_VARS NumPy
+  VERSION_VAR _numpy_version
+  )
+\end{codebox}
+
+所有必需的变量都设置为有效的文件路径(NumPy)后，发送到模块(\texttt{NumPy\_FOUND})。它还将版本保存在可传递的版本变量(\texttt{\_numpy\_version})中并打印:
+
+\begin{codebox}[shell]
+-- Found NumPy: /usr/lib/python3.6/site-packages/numpy (found version "1.14.3")
+\end{codebox}
+
+目前的示例中，没有进一步使用这些变量。如果返回\texttt{NumPy\_FOUND}为\texttt{FALSE}，则停止配置。
+
+最后，将\texttt{use\_numpy.py}复制到\texttt{build}目录，对代码进行注释:
+
+\begin{codebox}[cmake]
+add_custom_command(
+  OUTPUT
+    ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+    ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/use_numpy.py
+  )
+    
+target_sources(pure-embedding
+  PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/use_numpy.py
+  )
+\end{codebox}
+
+我们也可以使用\texttt{file(COPY…)}命令来实现复制。这里，我们选择使用\texttt{add\_custom\_command}，来确保文件在每次更改时都会被复制，而不仅仅是第一次运行配置时。我们将在第5章更详细地讨论\texttt{add\_custom\_command}。还要注意\texttt{target\_sources}命令，它将依赖项添加到\texttt{\$\{CMAKE\_CURRENT\_BINARY\_DIR\}/use\_numpy.py}；这样做是为了确保构建目标，能够触发之前的命令。
+
+
+% --- recipe 4: 3.4-chinese.md ---
+\section{3.4 检测BLAS和LAPACK数学库}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-04} 中找到，有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+许多数据算法严重依赖于矩阵和向量运算。例如：矩阵-向量和矩阵-矩阵乘法，求线性方程组的解，特征值和特征向量的计算或奇异值分解。这些操作在代码库中非常普遍，因为操作的数据量比较大，因此高效的实现有绝对的必要。幸运的是，有专家库可用：基本线性代数子程序(BLAS)和线性代数包(LAPACK)，为许多线性代数操作提供了标准API。供应商有不同的实现，但都共享API。虽然，用于数学库底层实现，实际所用的编程语言会随着时间而变化(Fortran、C、Assembly)，但是也都是Fortran调用接口。考虑到调用街扩，本示例中的任务要链接到这些库，并展示如何用不同语言编写的库。
+
+\mySmallsection{准备工作}
+
+为了展示数学库的检测和连接，我们编译一个C++程序，将矩阵的维数作为命令行输入，生成一个随机的方阵\textbf{A}，一个随机向量\textbf{b}，并计算线性系统方程: \textbf{Ax = b}。另外，将对向量\textbf{b}的进行随机缩放。这里，需要使用的子程序是BLAS中的DSCAL和LAPACK中的DGESV来求线性方程组的解。示例C++代码的清单( \texttt{linear-algebra.cpp})：
+
+\begin{codebox}[cpp]
+#include "CxxBLAS.hpp"
+#include "CxxLAPACK.hpp"
+
+#include <iostream>
+#include <random>
+#include <vector>
+
+int main(int argc, char** argv) {
+  if (argc != 2) {
+    std::cout << "Usage: ./linear-algebra dim" << std::endl;
+    return EXIT_FAILURE;
+  }
+  
+  // Generate a uniform distribution of real number between -1.0 and 1.0
+  std::random_device rd;
+  std::mt19937 mt(rd());
+  std::uniform_real_distribution<double> dist(-1.0, 1.0);
+  
+  // Allocate matrices and right-hand side vector
+  int dim = std::atoi(argv[1]);
+  std::vector<double> A(dim * dim);
+  std::vector<double> b(dim);
+  std::vector<int> ipiv(dim);
+  // Fill matrix and RHS with random numbers between -1.0 and 1.0
+  for (int r = 0; r < dim; r++) {
+    for (int c = 0; c < dim; c++) {
+      A[r + c * dim] = dist(mt);
+    }
+    b[r] = dist(mt);
+  }
+  
+  // Scale RHS vector by a random number between -1.0 and 1.0
+  C_DSCAL(dim, dist(mt), b.data(), 1);
+  std::cout << "C_DSCAL done" << std::endl;
+  
+  // Save matrix and RHS
+  std::vector<double> A1(A);
+  std::vector<double> b1(b);
+  int info;
+  info = C_DGESV(dim, 1, A.data(), dim, ipiv.data(), b.data(), dim);
+  std::cout << "C_DGESV done" << std::endl;
+  std::cout << "info is " << info << std::endl;
+  
+  double eps = 0.0;
+  for (int i = 0; i < dim; ++i) {
+    double sum = 0.0;
+    for (int j = 0; j < dim; ++j)
+      sum += A1[i + j * dim] * b[j];
+    eps += std::abs(b1[i] - sum);
+  }
+  std::cout << "check is " << eps << std::endl;
+  
+  return 0;
+}
+\end{codebox}
+
+使用C++11的随机库来生成-1.0到1.0之间的随机分布。\texttt{C\_DSCAL}和\texttt{C\_DGESV}分别是到BLAS和LAPACK库的接口。为了避免名称混淆，将在下面来进一步讨论CMake模块：
+
+文件\texttt{CxxBLAS.hpp}用\texttt{extern "C"}封装链接BLAS:
+
+\begin{codebox}[cpp]
+#pragma once
+#include "fc_mangle.h"
+#include <cstddef>
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern void DSCAL(int *n, double *alpha, double *vec, int *inc);
+#ifdef __cplusplus
+}
+#endif
+void C_DSCAL(size_t length, double alpha, double *vec, int inc);
+\end{codebox}
+
+对应的实现文件\texttt{CxxBLAS.cpp}:
+
+\begin{codebox}[cpp]
+#include "CxxBLAS.hpp"
+
+#include <climits>
+
+// see http://www.netlib.no/netlib/blas/dscal.f
+void C_DSCAL(size_t length, double alpha, double *vec, int inc) {
+  int big_blocks = (int)(length / INT_MAX);
+  int small_size = (int)(length % INT_MAX);
+  for (int block = 0; block <= big_blocks; block++) {
+    double *vec_s = &vec[block * inc * (size_t)INT_MAX];
+    signed int length_s = (block == big_blocks) ? small_size : INT_MAX;
+    ::DSCAL(&length_s, &alpha, vec_s, &inc);
+  }
+}
+\end{codebox}
+
+\texttt{CxxLAPACK.hpp}和\texttt{CxxLAPACK.cpp}为LAPACK调用执行相应的转换。
+
+\mySmallsection{具体实施}
+
+对应的\texttt{CMakeLists.txt}包含以下构建块:
+
+\begin{enumerate}
+\item 我们定义了CMake最低版本，项目名称和支持的语言:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-04 LANGUAGES CXX C Fortran)
+\end{codebox}
+
+\item 使用C++11标准:
+
+\begin{codebox}[cmake]
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 此外，我们验证Fortran和C/C++编译器是否能协同工作，并生成头文件，这个文件可以处理名称混乱。两个功能都由\texttt{FortranCInterface}模块提供:
+
+\begin{codebox}[cmake]
+include(FortranCInterface)
+FortranCInterface_VERIFY(CXX)
+FortranCInterface_HEADER(
+  fc_mangle.h
+  MACRO_NAMESPACE "FC_"
+  SYMBOLS DSCAL DGESV
+  )
+\end{codebox}
+
+\item 然后，找到BLAS和LAPACK:
+
+\begin{codebox}[cmake]
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+\end{codebox}
+
+\item 接下来，添加一个库，其中包含BLAS和LAPACK包装器的源代码，并链接到\texttt{LAPACK\_LIBRARIES}，其中也包含\texttt{BLAS\_LIBRARIES}:
+
+\begin{codebox}[cmake]
+add_library(math "")
+target_sources(math
+  PRIVATE
+    CxxBLAS.cpp
+    CxxLAPACK.cpp
+  )
+target_include_directories(math
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+  )
+target_link_libraries(math
+  PUBLIC
+    ${LAPACK_LIBRARIES}
+  )
+\end{codebox}
+
+\item 注意，目标的包含目录和链接库声明为\texttt{PUBLIC}，因此任何依赖于数学库的附加目标也将在其包含目录中。
+
+\item 最后，我们添加一个可执行目标并链接\texttt{math}：
+
+\begin{codebox}[cmake]
+add_executable(linear-algebra "")
+target_sources(linear-algebra
+  PRIVATE
+    linear-algebra.cpp
+  )
+target_link_libraries(linear-algebra
+  PRIVATE
+    math
+  )
+\end{codebox}
+
+\item 配置时，我们可以关注相关的打印输出:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+...
+-- Detecting Fortran/C Interface
+-- Detecting Fortran/C Interface - Found GLOBAL and MODULE mangling
+-- Verifying Fortran/C Compiler Compatibility
+-- Verifying Fortran/C Compiler Compatibility - Success
+...
+-- Found BLAS: /usr/lib/libblas.so
+...
+-- A library with LAPACK API found.
+...
+\end{codebox}
+
+\item 最后，构建并测试可执行文件:
+
+\begin{codebox}[shell]
+$ cmake --build .
+$ ./linear-algebra 1000
+C_DSCAL done
+C_DGESV done
+info is 0
+check is 1.54284e-10
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{FindBLAS.cmake}和\texttt{FindLAPACK.cmake}将在标准位置查找BLAS和LAPACK库。对于前者，该模块有\texttt{SGEMM}函数的Fortran实现，一般用于单精度矩阵乘积。对于后者，该模块有\texttt{CHEEV}函数的Fortran实现，用于计算复杂厄米矩阵的特征值和特征向量。查找在CMake内部，通过编译一个小程序来完成，该程序调用这些函数，并尝试链接到候选库。如果失败，则表示相应库不存于系统上。
+
+生成机器码时，每个编译器都会处理符号混淆，不幸的是，这种操作并不通用，而与编译器相关。为了解决这个问题，我们使用\texttt{FortranCInterface}模块( \texthref{https://cmake.org/cmake/help/v3.5/module/FortranCInterface.html} )验证Fortran和C/C++能否混合编译，然后生成一个Fortran-C接口头文件\texttt{fc\_mangle.h}，这个文件用来解决编译器性的问题。然后，必须将生成的\texttt{fc\_mann .h}包含在接口头文件\texttt{CxxBLAS.hpp}和\texttt{CxxLAPACK.hpp}中。为了使用\texttt{FortranCInterface}，我们需要在\texttt{LANGUAGES}列表中添加C和Fortran支持。当然，也可以定义自己的预处理器定义，但是可移植性会差很多。
+
+我们将在第9章中更详细地讨论Fortran和C的互操作性。
+
+\begin{myInfoBox}
+\textbf{NOTE}：目前，BLAS和LAPACK的许多实现已经在Fortran外附带了一层C包装。这些包装器多年来已经标准化，称为CBLAS和LAPACKE。
+\end{myInfoBox}
+
+\mySmallsection{更多信息}
+
+许多算法代码比较依赖于矩阵代数运算，使用BLAS和LAPACK API的高性能实现就非常重要了。供应商为不同的体系结构和并行环境提供不同的库，\texttt{FindBLAS.cmake}和\texttt{ FindLAPACK.cmake}可能的无法定位到当前库。如果发生这种情况，可以通过\texttt{-D}选项显式地从CLI对库进行设置。
+
+
+% --- recipe 5: 3.5-chinese.md ---
+\section{3.5 检测OpenMP的并行环境}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-05} 中找到，有一个C++和一个Fortran示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。\texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-05} 中也有一个适用于CMake 3.5的示例。
+\end{myInfoBox}
+
+目前，市面上的计算机几乎都是多核机器，对于性能敏感的程序，我们必须关注这些多核处理器，并在编程模型中使用并发。OpenMP是多核处理器上并行性的标准之一。为了从OpenMP并行化中获得性能收益，通常不需要修改或重写现有程序。一旦确定了代码中的性能关键部分，例如：使用分析工具，程序员就可以通过预处理器指令，指示编译器为这些区域生成可并行的代码。
+
+本示例中，我们将展示如何编译一个包含OpenMP指令的程序(前提是使用一个支持OpenMP的编译器)。有许多支持OpenMP的Fortran、C和C++编译器。对于相对较新的CMake版本，为OpenMP提供了非常好的支持。本示例将展示如何在使用CMake 3.9或更高版本时，使用简单C++和Fortran程序来链接到OpenMP。
+
+\begin{myInfoBox}
+\textbf{NOTE}：根据Linux发行版的不同，Clang编译器的默认版本可能不支持OpenMP。使用或非苹果版本的Clang(例如，Conda提供的)或GNU编译器,除非单独安装libomp库(https://iscinumpy.gitlab.io/post/omp-on-high-sierra/ )，否则本节示例将无法在macOS上工作。
+\end{myInfoBox}
+
+\mySmallsection{准备工作}
+
+C和C++程序可以通过包含\texttt{omp.h}头文件和链接到正确的库，来使用OpenMP功能。编译器将在性能关键部分之前添加预处理指令，并生成并行代码。在本示例中，我们将构建以下示例源代码(\texttt{example.cpp})。这段代码从1到N求和，其中N作为命令行参数:
+
+\begin{codebox}[cpp]
+#include <iostream>
+#include <omp.h>
+#include <string>
+
+int main(int argc, char *argv[])
+{
+  std::cout << "number of available processors: " << omp_get_num_procs()
+            << std::endl;
+  std::cout << "number of threads: " << omp_get_max_threads() << std::endl;
+  auto n = std::stol(argv[1]);
+  std::cout << "we will form sum of numbers from 1 to " << n << std::endl;
+  // start timer
+  auto t0 = omp_get_wtime();
+  auto s = 0LL;
+#pragma omp parallel for reduction(+ : s)
+  for (auto i = 1; i <= n; i++)
+  {
+    s += i;
+  }
+  // stop timer
+  auto t1 = omp_get_wtime();
+
+  std::cout << "sum: " << s << std::endl;
+  std::cout << "elapsed wall clock time: " << t1 - t0 << " seconds" << std::endl;
+  
+  return 0;
+}
+\end{codebox}
+
+在Fortran语言中，需要使用\texttt{omp\_lib}模块并链接到库。在性能关键部分之前的代码注释中，可以再次使用并行指令。例如：\texttt{F90}需要包含以下内容:
+
+\begin{codebox}[fortran]
+program example
+
+  use omp_lib
+  
+  implicit none
+  
+  integer(8) :: i, n, s
+  character(len=32) :: arg
+  real(8) :: t0, t1
+  
+  print *, "number of available processors:", omp_get_num_procs()
+  print *, "number of threads:", omp_get_max_threads()
+  
+  call get_command_argument(1, arg)
+  read(arg , *) n
+  
+  print *, "we will form sum of numbers from 1 to", n
+  
+  ! start timer
+  t0 = omp_get_wtime()
+  
+  s = 0
+!$omp parallel do reduction(+:s)
+  do i = 1, n
+  s = s + i
+  end do
+  
+  ! stop timer
+  t1 = omp_get_wtime()
+  
+  print *, "sum:", s
+  print *, "elapsed wall clock time (seconds):", t1 - t0
+  
+end program
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+对于C++和Fortran的例子，\texttt{CMakeLists.txt}将遵循一个模板，该模板在这两种语言上很相似：
+
+\begin{enumerate}
+\item 两者都定义了CMake最低版本、项目名称和语言(CXX或Fortran；我们将展示C++版本):
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(recipe-05 LANGUAGES CXX)
+\end{codebox}
+
+\item 使用C++11标准:
+
+\begin{codebox}[cmake]
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 调用find\_package来搜索OpenMP:
+
+\begin{codebox}[cmake]
+find_package(OpenMP REQUIRED)
+\end{codebox}
+
+\item 最后，我们定义可执行目标，并链接到FindOpenMP模块提供的导入目标(在Fortran的情况下，我们链接到\texttt{OpenMP::OpenMP\_Fortran}):
+
+\begin{codebox}[cmake]
+add_executable(example example.cpp)
+target_link_libraries(example
+  PUBLIC
+    OpenMP::OpenMP_CXX
+  )
+\end{codebox}
+
+\item 现在，可以配置和构建代码了:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+\end{codebox}
+
+\item 并行测试(在本例中使用了4个内核):
+
+\begin{codebox}[shell]
+$ ./example 1000000000
+number of available processors: 4
+number of threads: 4
+we will form sum of numbers from 1 to 1000000000
+sum: 500000000500000000
+elapsed wall clock time: 1.08343 seconds
+\end{codebox}
+
+\item 为了比较，我们可以重新运行这个例子，并将OpenMP线程的数量设置为1:
+
+\begin{codebox}[shell]
+$ env OMP_NUM_THREADS=1 ./example 1000000000
+number of available processors: 4
+number of threads: 1
+we will form sum of numbers from 1 to 1000000000
+sum: 500000000500000000
+elapsed wall clock time: 2.96427 seconds
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+我们的示例很简单：编译代码，并运行在多个内核上时，我们会看到加速效果。加速效果并不是\texttt{OMP\_NUM\_THREADS}的倍数，不过本示例中并不关心，因为我们更关注的是如何使用CMake配置需要使用OpenMP的项目。我们发现链接到OpenMP非常简单，这要感谢\texttt{FindOpenMP}模块:
+
+\begin{codebox}[cmake]
+target_link_libraries(example
+    PUBLIC
+        OpenMP::OpenMP_CXX
+    )
+\end{codebox}
+
+我们不关心编译标志或包含目录——这些设置和依赖项是在\texttt{OpenMP::OpenMP\_CXX}中定义的(\texttt{IMPORTED}类型)。如第1章第3节中提到的，\texttt{IMPORTED}库是伪目标，它完全是我们自己项目的外部依赖项。要使用OpenMP，需要设置一些编译器标志，包括目录和链接库。所有这些都包含在\texttt{OpenMP::OpenMP\_CXX}的属性上，并通过使用\texttt{target\_link\_libraries}命令传递给\texttt{example}。这使得在CMake中，使用库变得非常容易。我们可以使用\texttt{cmake\_print\_properties}命令打印接口的属性，该命令由\texttt{CMakePrintHelpers.CMake}模块提供:
+
+\begin{codebox}[cmake]
+include(CMakePrintHelpers)
+cmake_print_properties(
+    TARGETS
+        OpenMP::OpenMP_CXX
+    PROPERTIES
+        INTERFACE_COMPILE_OPTIONS
+        INTERFACE_INCLUDE_DIRECTORIES
+        INTERFACE_LINK_LIBRARIES
+    )
+\end{codebox}
+
+所有属性都有\texttt{INTERFACE\_}前缀，因为这些属性对所需目标，需要以接口形式提供，并且目标以接口的方式使用OpenMP。
+
+对于低于3.9的CMake版本:
+
+\begin{codebox}[cmake]
+add_executable(example example.cpp)
+
+target_compile_options(example
+  PUBLIC
+    ${OpenMP_CXX_FLAGS}
+  )
+  
+set_target_properties(example
+  PROPERTIES
+    LINK_FLAGS ${OpenMP_CXX_FLAGS}
+  )
+\end{codebox}
+
+对于低于3.5的CMake版本，我们需要为Fortran项目显式定义编译标志。
+
+在这个示例中，我们讨论了C++和Fortran。相同的参数和方法对于C项目也有效。
+
+
+% --- recipe 6: 3.6-chinese.md ---
+\section{3.6 检测MPI的并行环境}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-06} 中找到，包含一个C++和一个C的示例。该示例在CMake 3.9版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。\texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-06} 中也有一个适用于CMake 3.5的C示例。
+\end{myInfoBox}
+
+消息传递接口(Message Passing Interface, MPI)，可以作为OpenMP(共享内存并行方式)的补充，它也是分布式系统上并行程序的实际标准。尽管，最新的MPI实现也允许共享内存并行，但高性能计算中的一种典型方法就是，在计算节点上OpenMP与MPI结合使用。MPI标准的实施包括:
+
+\begin{enumerate}
+\item 运行时库
+
+\item 头文件和Fortran 90模块
+
+\item 编译器的包装器，用来调用编译器，使用额外的参数来构建MPI库，以处理目录和库。通常，包装器\texttt{mpic++/mpiCC/mpicxx }用于C++，\texttt{mpicc}用于C，\texttt{mpifort}用于Fortran。
+
+\item 启动MPI：应该启动程序，以编译代码的并行执行。它的名称依赖于实现，可以使用这几个命令启动：\texttt{mpirun}、\texttt{mpiexec}或\texttt{orterun}。
+
+\end{enumerate}
+
+本示例，将展示如何在系统上找到合适的MPI实现，从而编译一个简单的“Hello, World”MPI例程。
+
+\mySmallsection{准备工作}
+
+示例代码(\texttt{hello-mpi.cpp}，可从\texthref{http://www.mpitutorial.com} 下载)将在本示例中进行编译，它将初始化MPI库，让每个进程打印其名称:
+
+\begin{codebox}[cpp]
+#include <iostream>
+
+#include <mpi.h>
+
+int main(int argc, char **argv)
+{
+  // Initialize the MPI environment. The two arguments to MPI Init are not
+  // currently used by MPI implementations, but are there in case future
+  // implementations might need the arguments.
+  MPI_Init(NULL, NULL);
+
+  // Get the number of processes
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  // Get the rank of the process
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  // Get the name of the processor
+  char processor_name[MPI_MAX_PROCESSOR_NAME];
+  int name_len;
+  MPI_Get_processor_name(processor_name, &name_len);
+
+  // Print off a hello world message
+  std::cout << "Hello world from processor " << processor_name << ", rank "
+            << world_rank << " out of " << world_size << " processors" << std::endl;
+            
+  // Finalize the MPI environment. No more MPI calls can be made after this
+  MPI_Finalize();
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+这个示例中，我们先查找MPI实现：库、头文件、编译器包装器和启动器。为此，我们将用到\texttt{FindMPI.cmake}标准CMake模块:
+
+\begin{enumerate}
+\item 首先，定义了CMake最低版本、项目名称、支持的语言和语言标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(recipe-06 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 然后，调用\texttt{find\_package}来定位MPI:
+
+\begin{codebox}[cmake]
+find_package(MPI REQUIRED)
+\end{codebox}
+
+\item 与前面的配置类似，定义了可执行文件的的名称和相关源码，并链接到目标:
+
+\begin{codebox}[cmake]
+add_executable(hello-mpi hello-mpi.cpp)
+target_link_libraries(hello-mpi
+  PUBLIC
+      MPI::MPI_CXX
+  )
+\end{codebox}
+
+\item 配置和构建可执行文件:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake .. # -D CMAKE_CXX_COMPILER=mpicxx C++例子中可加，加与不加对于构建结果没有影响╭(╯^╰)╮
+-- ...
+-- Found MPI_CXX: /usr/lib/openmpi/libmpi_cxx.so (found version "3.1")
+-- Found MPI: TRUE (found version "3.1")
+-- ...
+$ cmake --build .
+\end{codebox}
+
+\item 为了并行执行这个程序，我们使用\texttt{mpirun}启动器(本例中，启动了两个任务):
+
+\begin{codebox}[shell]
+$ mpirun -np 2 ./hello-mpi
+Hello world from processor larry, rank 1 out of 2 processors
+Hello world from processor larry, rank 0 out of 2 processors
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+请记住，编译包装器是对MPI库编译器的封装。底层实现中，将会调用相同的编译器，并使用额外的参数(如成功构建并行程序所需的头文件包含路径和库)来扩充它。
+
+编译和链接源文件时，包装器用了哪些标志？我们可以使用\texttt{--showme}选项来查看。要找出编译器的标志，我们可以这样使用:
+
+\begin{codebox}[shell]
+$ mpicxx --showme:compile
+
+-pthread
+\end{codebox}
+
+为了找出链接器标志，我们可以这样:
+
+\begin{codebox}[shell]
+$ mpicxx --showme:link
+
+-pthread -Wl,-rpath -Wl,/usr/lib/openmpi -Wl,--enable-new-dtags -L/usr/lib/openmpi -lmpi_cxx -lmpi
+\end{codebox}
+
+与之前的OpenMP配置类似，我们发现到MPI的链接非常简单，这要归功于\texttt{FindMPI}模块提供的目标:
+
+正如在前面的配方中所讨论的，对于CMake版本低于3.9，需要更多的工作量:
+
+\begin{codebox}[cmake]
+add_executable(hello-mpi hello-mpi.c)
+
+target_compile_options(hello-mpi
+  PUBLIC
+    ${MPI_CXX_COMPILE_FLAGS}
+  )
+  
+target_include_directories(hello-mpi
+  PUBLIC
+    ${MPI_CXX_INCLUDE_PATH}
+  )
+  
+target_link_libraries(hello-mpi
+  PUBLIC
+    ${MPI_CXX_LIBRARIES}
+  )
+\end{codebox}
+
+本示例中，我们讨论了C++项目。其中的参数和方法对于C或Fortran项目同样有效。
+
+
+% --- recipe 7: 3.7-chinese.md ---
+\section{3.7 检测Eigen库}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-07} 中找到，包含一个C++的示例。该示例在CMake 3.9版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。\texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-06} 中也有一个适用于CMake 3.5的C++示例。
+\end{myInfoBox}
+
+BLAS库为矩阵和向量操作提供了标准化接口。不过，这个接口用Fortran语言书写。虽然已经展示了如何使用C++直接使用这些库，但在现代C++程序中，希望有更高级的接口。
+
+纯头文件实现的Eigen库，使用模板编程来提供接口。矩阵和向量的计算，会在编译时进行数据类型检查，以确保兼容所有维度的矩阵。密集和稀疏矩阵的运算，也可使用表达式模板高效的进行实现，如：矩阵-矩阵乘积，线性系统求解器和特征值问题。从3.3版开始，Eigen可以链接到BLAS和LAPACK库中，这可以将某些操作实现进行卸载，使库的实现更加灵活，从而获得更多的性能收益。
+
+本示例将展示如何查找Eigen库，使用OpenMP并行化，并将部分工作转移到BLAS库。
+
+本示例中会实现，矩阵-向量乘法和\href{[https://zh.wikipedia.org/wiki/LU\%E5\%88\%86\%E8\%A7\%A3](https://zh.wikipedia.org/wiki/LU分解}{LU分解})，可以选择卸载BLAS和LAPACK库中的一些实现。这个示例中，只考虑将在BLAS库中卸载。
+
+\mySmallsection{准备工作}
+
+本例中，我们编译一个程序，该程序会从命令行获取的随机方阵和维向量。然后我们将用LU分解来解线性方程组\textbf{Ax=b}。以下是源代码(\texttt{ linear-algebra.cpp }):
+
+\begin{codebox}[cpp]
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+
+#include <Eigen/Dense>
+
+int main(int argc, char **argv)
+{
+  if (argc != 2)
+  {
+    std::cout << "Usage: ./linear-algebra dim" << std::endl;
+    return EXIT_FAILURE;
+  }
+  std::chrono::time_point<std::chrono::system_clock> start, end;
+  std::chrono::duration<double> elapsed_seconds;
+  std::time_t end_time;
+  std::cout << "Number of threads used by Eigen: " << Eigen::nbThreads()
+            << std::endl;
+
+  // Allocate matrices and right-hand side vector
+  start = std::chrono::system_clock::now();
+  int dim = std::atoi(argv[1]);
+  Eigen::MatrixXd A = Eigen::MatrixXd::Random(dim, dim);
+  Eigen::VectorXd b = Eigen::VectorXd::Random(dim);
+  end = std::chrono::system_clock::now();
+
+  // Report times
+  elapsed_seconds = end - start;
+  end_time = std::chrono::system_clock::to_time_t(end);
+  std::cout << "matrices allocated and initialized "
+            << std::put_time(std::localtime(&end_time), "%a %b %d %Y
+  %r\n")
+            << "elapsed time: " << elapsed_seconds.count() << "s\n";
+
+  start = std::chrono::system_clock::now();
+  // Save matrix and RHS
+  Eigen::MatrixXd A1 = A;
+  Eigen::VectorXd b1 = b;
+  end = std::chrono::system_clock::now();
+  end_time = std::chrono::system_clock::to_time_t(end);
+  std::cout << "Scaling done, A and b saved "
+            << std::put_time(std::localtime(&end_time), "%a %b %d %Y %r\n")
+            << "elapsed time: " << elapsed_seconds.count() << "s\n";
+  start = std::chrono::system_clock::now();
+  Eigen::VectorXd x = A.lu().solve(b);
+  end = std::chrono::system_clock::now();
+
+  // Report times
+  elapsed_seconds = end - start;
+  end_time = std::chrono::system_clock::to_time_t(end);
+  double relative_error = (A * x - b).norm() / b.norm();
+  std::cout << "Linear system solver done "
+            << std::put_time(std::localtime(&end_time), "%a %b %d %Y %r\n")
+            << "elapsed time: " << elapsed_seconds.count() << "s\n";
+  std::cout << "relative error is " << relative_error << std::endl;
+  
+  return 0;
+}
+\end{codebox}
+
+矩阵-向量乘法和LU分解是在Eigen库中实现的，但是可以选择BLAS和LAPACK库中的实现。在这个示例中，我们只考虑BLAS库中的实现。
+
+\mySmallsection{具体实施}
+
+这个示例中，我们将用到Eigen和BLAS库，以及OpenMP。使用OpenMP将Eigen并行化，并从BLAS库中卸载部分线性代数实现:
+
+\begin{enumerate}
+\item 首先声明CMake最低版本、项目名称和使用C++11语言标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+project(recipe-07 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 因为Eigen可以使用共享内存的方式，所以可以使用OpenMP并行处理计算密集型操作:
+
+\begin{codebox}[cmake]
+find_package(OpenMP REQUIRED)
+\end{codebox}
+
+\item 调用\texttt{find\_package}来搜索Eigen(将在下一小节中讨论):
+
+\begin{codebox}[cmake]
+find_package(Eigen3 3.3 REQUIRED CONFIG)
+\end{codebox}
+
+\item 如果找到Eigen，我们将打印状态信息。注意，使用的是\texttt{Eigen3::Eigen}，这是一个\texttt{IMPORT}目标，可通过提供的CMake脚本找到这个目标:
+
+\begin{codebox}[cmake]
+if(TARGET Eigen3::Eigen)
+  message(STATUS "Eigen3 v${EIGEN3_VERSION_STRING} found in ${EIGEN3_INCLUDE_DIR}")
+endif()
+\end{codebox}
+
+\item 接下来，将源文件声明为可执行目标:
+
+\begin{codebox}[cmake]
+add_executable(linear-algebra linear-algebra.cpp)
+\end{codebox}
+
+\item 然后，找到BLAS。注意，现在不需要依赖项:
+
+\begin{codebox}[cmake]
+find_package(BLAS)
+\end{codebox}
+
+\item 如果找到BLAS，我们可为可执行目标，设置相应的宏定义和链接库:
+
+\begin{codebox}[cmake]
+if(BLAS_FOUND)
+  message(STATUS "Eigen will use some subroutines from BLAS.")
+  message(STATUS "See: http://eigen.tuxfamily.org/dox-devel/TopicUsingBlasLapack.html")
+  target_compile_definitions(linear-algebra
+    PRIVATE
+        EIGEN_USE_BLAS
+    )
+  target_link_libraries(linear-algebra
+    PUBLIC
+        ${BLAS_LIBRARIES}
+    )
+else()
+    message(STATUS "BLAS not found. Using Eigen own functions")
+endif()
+\end{codebox}
+
+\item 最后，我们链接到\texttt{Eigen3::Eigen}和\texttt{OpenMP::OpenMP\_CXX}目标。这就可以设置所有必要的编译标示和链接标志:
+
+\begin{codebox}[cmake]
+target_link_libraries(linear-algebra
+  PUBLIC
+    Eigen3::Eigen
+    OpenMP::OpenMP_CXX
+  ) 
+\end{codebox}
+
+\item 开始配置:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+-- ...
+-- Found OpenMP_CXX: -fopenmp (found version "4.5")
+-- Found OpenMP: TRUE (found version "4.5")
+-- Eigen3 v3.3.4 found in /usr/include/eigen3
+-- ...
+-- Found BLAS: /usr/lib/libblas.so
+-- Eigen will use some subroutines from BLAS.
+-- See: http://eigen.tuxfamily.org/dox-devel/TopicUsingBlasLapack.html
+\end{codebox}
+
+\item 最后，编译并测试代码。注意，可执行文件使用四个线程运行:
+
+\begin{codebox}[shell]
+$ cmake --build .
+$ ./linear-algebra 1000
+Number of threads used by Eigen: 4
+matrices allocated and initialized Sun Jun 17 2018 11:04:20 AM
+elapsed time: 0.0492328s
+Scaling done, A and b saved Sun Jun 17 2018 11:04:20 AM
+elapsed time: 0.0492328s
+Linear system solver done Sun Jun 17 2018 11:04:20 AM
+elapsed time: 0.483142s
+relative error is 4.21946e-13
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+Eigen支持CMake查找，这样配置项目就会变得很容易。从3.3版开始，Eigen提供了CMake模块，这些模块将导出相应的目标\texttt{Eigen3::Eigen}。
+
+\texttt{find\_package}可以通过选项传递，届时CMake将不会使用\texttt{FindEigen3.cmake}模块，而是通过特定的\texttt{Eigen3Config.cmake}，\texttt{Eigen3ConfigVersion.cmake}和\texttt{Eigen3Targets.cmake}提供Eigen3安装的标准位置(\texttt{<installation-prefix>/share/eigen3/cmake})。这种包定位模式称为“Config”模式，比\texttt{ Find<package>.cmake }方式更加通用。有关“模块”模式和“配置”模式的更多信息，可参考官方文档 \texthref{https://cmake.org/cmake/help/v3.5/command/find\_package.html} 。
+
+虽然Eigen3、BLAS和OpenMP声明为\texttt{ PUBLIC}依赖项，但\texttt{EIGEN\_USE\_BLAS}编译定义声明为\texttt{PRIVATE}。可以在单独的库目标中汇集库依赖项，而不是直接链接可执行文件。使用\texttt{PUBLIC/PRIVATE}关键字，可以根据库目标的依赖关系调整相应标志和定义。
+
+\mySmallsection{更多信息}
+
+CMake将在预定义的位置层次结构中查找配置模块。首先是\texttt{CMAKE\_PREFIX\_PATH}，\texttt{ <package>\_DIR}是接下来的搜索路径。因此，如果Eigen3安装在非标准位置，可以使用这两个选项来告诉CMake在哪里查找它:
+
+\begin{enumerate}
+\item 通过将Eigen3的安装前缀传递给\texttt{CMAKE\_PREFIX\_PATH}:
+
+\begin{codebox}[shell]
+$ cmake -D CMAKE_PREFIX_PATH=<installation-prefix> ..
+\end{codebox}
+
+\item 通过传递配置文件的位置作为\texttt{Eigen3\_DIR}:
+
+\begin{codebox}[shell]
+$ cmake -D Eigen3_DIR=<installation-prefix>/share/eigen3/cmake ..
+\end{codebox}
+
+\end{enumerate}
+
+
+% --- recipe 8: 3.8-chinese.md ---
+\section{3.8 检测Boost库}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-08} 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Boost是一组C++通用库。这些库提供了许多功能，这些功能在现代C++项目中不可或缺，但是还不能通过C++标准使用这些功能。例如，Boost为元编程、处理可选参数和文件系统操作等提供了相应的组件。这些库中有许多特性后来被C++11、C++14和C++17标准所采用，但是对于保持与旧编译器兼容性的代码库来说，许多Boost组件仍然是首选。
+
+本示例将向您展示如何检测和链接Boost库的一些组件。
+
+\mySmallsection{准备工作}
+
+我们将编译的源码是Boost提供的文件系统库与文件系统交互的示例。这个库可以跨平台使用，并将操作系统和文件系统之间的差异抽象为一致的API。下面的代码(\texttt{path-info.cpp})将接受一个路径作为参数，并将其组件的报告打印到屏幕上:
+
+\begin{codebox}[cpp]
+#include <iostream>
+
+#include <boost/filesystem.hpp>
+
+using namespace std;
+using namespace boost::filesystem;
+const char *say_what(bool b) { return b ? "true" : "false"; }
+int main(int argc, char *argv[])
+{
+  if (argc < 2)
+  {
+    cout
+        << "Usage: path_info path-element [path-element...]\n"
+           "Composes a path via operator/= from one or more path-element arguments\n"
+           "Example: path_info foo/bar baz\n"
+#ifdef BOOST_POSIX_API
+           " would report info about the composed path foo/bar/baz\n";
+#else // BOOST_WINDOWS_API
+           " would report info about the composed path foo/bar\\baz\n";
+#endif
+    return 1;
+  }
+  path p;
+  for (; argc > 1; --argc, ++argv)
+    p /= argv[1]; // compose path p from the command line arguments
+  cout << "\ncomposed path:\n";
+  cout << " operator<<()---------: " << p << "\n";
+  cout << " make_preferred()-----: " << p.make_preferred() << "\n";
+  cout << "\nelements:\n";
+  for (auto element : p)
+    cout << " " << element << '\n';
+  cout << "\nobservers, native format:" << endl;
+#ifdef BOOST_POSIX_API
+  cout << " native()-------------: " << p.native() << endl;
+  cout << " c_str()--------------: " << p.c_str() << endl;
+#else // BOOST_WINDOWS_API
+  wcout << L" native()-------------: " << p.native() << endl;
+  wcout << L" c_str()--------------: " << p.c_str() << endl;
+#endif
+  cout << " string()-------------: " << p.string() << endl;
+  wcout << L" wstring()------------: " << p.wstring() << endl;
+  cout << "\nobservers, generic format:\n";
+  cout << " generic_string()-----: " << p.generic_string() << endl;
+  wcout << L" generic_wstring()----: " << p.generic_wstring() << endl;
+  cout << "\ndecomposition:\n";
+  cout << " root_name()----------: " << p.root_name() << '\n';
+  cout << " root_directory()-----: " << p.root_directory() << '\n';
+  cout << " root_path()----------: " << p.root_path() << '\n';
+  cout << " relative_path()------: " << p.relative_path() << '\n';
+  cout << " parent_path()--------: " << p.parent_path() << '\n';
+  cout << " filename()-----------: " << p.filename() << '\n';
+  cout << " stem()---------------: " << p.stem() << '\n';
+  cout << " extension()----------: " << p.extension() << '\n';
+  cout << "\nquery:\n";
+  cout << " empty()--------------: " << say_what(p.empty()) << '\n';
+  cout << " is_absolute()--------: " << say_what(p.is_absolute()) << '\n';
+  cout << " has_root_name()------: " << say_what(p.has_root_name()) << '\n';
+  cout << " has_root_directory()-: " << say_what(p.has_root_directory()) << '\n';
+  cout << " has_root_path()------: " << say_what(p.has_root_path()) << '\n';
+  cout << " has_relative_path()--: " << say_what(p.has_relative_path()) << '\n';
+  cout << " has_parent_path()----: " << say_what(p.has_parent_path()) << '\n';
+  cout << " has_filename()-------: " << say_what(p.has_filename()) << '\n';
+  cout << " has_stem()-----------: " << say_what(p.has_stem()) << '\n';
+  cout << " has_extension()------: " << say_what(p.has_extension()) << '\n';
+  return 0;
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+Boost由许多不同的库组成，这些库可以独立使用。CMake可将这个库集合，表示为组件的集合。\texttt{FindBoost.cmake}模块不仅可以搜索库集合的完整安装，还可以搜索集合中的特定组件及其依赖项(如果有的话)。我们将逐步建立相应的\texttt{CMakeLists.txt}:
+
+\begin{enumerate}
+\item 首先，声明CMake最低版本、项目名称、语言，并使用C++11标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-08 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 然后，使用\texttt{find\_package}搜索Boost。若需要对Boost强制性依赖，需要一个参数。这个例子中，只需要文件系统组件，所以将它作为参数传递给\texttt{find\_package}:
+
+\begin{codebox}[cmake]
+find_package(Boost 1.54 REQUIRED COMPONENTS filesystem)
+\end{codebox}
+
+\item 添加可执行目标，编译源文件:
+
+\begin{codebox}[cmake]
+add_executable(path-info path-info.cpp)
+\end{codebox}
+
+\item 最后，将目标链接到Boost库组件。由于依赖项声明为\texttt{PUBLIC}，依赖于Boost的目标将自动获取依赖项:
+
+\begin{codebox}[cmake]
+target_link_libraries(path-info
+  PUBLIC
+    Boost::filesystem
+    )
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{FindBoost.cmake }是本示例中所使用的CMake模块，其会在标准系统安装目录中找到Boost库。由于我们链接的是\texttt{Boost::filesystem}，CMake将自动设置包含目录并调整编译和链接标志。如果Boost库安装在非标准位置，可以在配置时使用\texttt{BOOST\_ROOT}变量传递Boost安装的根目录，以便让CMake搜索非标准路径:
+
+\begin{codebox}[shell]
+$ cmake -D BOOST_ROOT=/custom/boost
+\end{codebox}
+
+或者，可以同时传递包含头文件的\texttt{BOOST\_INCLUDEDIR}变量和库目录的\texttt{BOOST\_LIBRARYDIR}变量:
+
+\begin{codebox}[shell]
+$ cmake -D BOOST_INCLUDEDIR=/custom/boost/include -DBOOST_LIBRARYDIR=/custom/boost/lib
+\end{codebox}
+
+
+% --- recipe 9: 3.9-chinese.md ---
+\section{3.9 检测外部库:Ⅰ. 使用pkg-config}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-09} 中找到，包含一个C的示例。该示例在CMake 3.6版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。\texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-09} 中也有一个适用于CMake 3.5的示例。
+\end{myInfoBox}
+
+目前为止，我们已经讨论了两种检测外部依赖关系的方法:
+
+\begin{itemize}
+\item 使用CMake自带的\texttt{find-module}，但并不是所有的包在CMake的\texttt{find}模块都找得到。
+
+\item 使用\texttt{ <package>Config.cmake}, \texttt{ <package>ConfigVersion.cmake }和\texttt{<package>Targets.cmake}，这些文件由软件包供应商提供，并与软件包一起安装在标准位置的cmake文件夹下。
+
+\end{itemize}
+
+如果某个依赖项既不提供查找模块，也不提供供应商打包的CMake文件，该怎么办?在这种情况下，我们只有两个选择:
+
+\begin{itemize}
+\item 依赖\texttt{pkg-config}程序，来找到系统上的包。这依赖于包供应商在\texttt{.pc}配置文件中，其中有关于发行包的元数据。
+
+\item 为依赖项编写自己的\texttt{find-package}模块。
+
+\end{itemize}
+
+本示例中，将展示如何利用CMake中的\texttt{pkg-config}来定位ZeroMQ消息库。下一个示例中，将编写一个find模块，展示如何为ZeroMQ编写属于自己\texttt{find}模块。
+
+\mySmallsection{准备工作}
+
+我们构建的代码来自ZeroMQ手册 \texthref{http://zguide.zeromq.org/page:all} 的示例。由两个源文件\texttt{hwserver.c}和\texttt{hwclient.c}组成，这两个源文件将构建为两个独立的可执行文件。执行时，它们将打印“Hello, World”。
+
+\mySmallsection{具体实施}
+
+这是一个C项目，我们将使用C99标准，逐步构建\texttt{CMakeLists.txt}文件:
+
+\begin{enumerate}
+\item 声明一个C项目，并要求符合C99标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.6 FATAL_ERROR)
+project(recipe-09 LANGUAGES C)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 使用CMake附带的find-module，查找\texttt{pkg-config}。这里在\texttt{find\_package}中传递了\texttt{QUIET}参数。只有在没有找到\texttt{pkg-config}时，CMake才会报错:
+
+\begin{codebox}[cmake]
+find_package(PkgConfig REQUIRED QUIET)
+\end{codebox}
+
+\item 找到\texttt{pkg-config}时，我们将使用\texttt{pkg\_search\_module}函数，以搜索任何附带包配置\texttt{.pc}文件的库或程序。该示例中，我们查找ZeroMQ库:
+
+\begin{codebox}[cmake]
+pkg_search_module(
+  ZeroMQ
+  REQUIRED
+    libzeromq libzmq lib0mq
+  IMPORTED_TARGET
+  )
+\end{codebox}
+
+\item 如果找到ZeroMQ库，则打印状态消息:
+
+\begin{codebox}[cmake]
+if(TARGET PkgConfig::ZeroMQ)
+    message(STATUS "Found ZeroMQ")
+endif()
+\end{codebox}
+
+\item 然后，添加两个可执行目标，并链接到ZeroMQ。这将自动设置包括目录和链接库:
+
+\begin{codebox}[cmake]
+add_executable(hwserver hwserver.c)
+target_link_libraries(hwserver PkgConfig::ZeroMQ)
+add_executable(hwclient hwclient.c)
+target_link_libraries(hwclient PkgConfig::ZeroMQ)
+\end{codebox}
+
+\item 现在，我们可以配置和构建示例:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+\end{codebox}
+
+\item 在终端中，启动服务器，启动时会输出类似于本例的消息:
+
+\begin{codebox}[shell]
+Current 0MQ version is 4.2.2
+\end{codebox}
+
+\item 然后，在另一个终端启动客户端，它将打印如下内容:
+
+\begin{codebox}[shell]
+Connecting to hello world server…
+Sending Hello 0…
+Received World 0
+Sending Hello 1…
+Received World 1
+Sending Hello 2…
+...
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作}
+
+当找到\texttt{pkg-config}时, CMake需要提供两个函数，来封装这个程序提供的功能:
+
+\begin{itemize}
+\item \texttt{pkg\_check\_modules}，查找传递列表中的所有模块(库和/或程序)
+
+\item \texttt{pkg\_search\_module}，要在传递的列表中找到第一个工作模块
+
+\end{itemize}
+
+与\texttt{find\_package}一样，这些函数接受\texttt{REQUIRED}和\texttt{QUIET}参数。更详细地说，我们对\texttt{pkg\_search\_module}的调用如下:
+
+\begin{codebox}[cmake]
+pkg_search_module(
+  ZeroMQ
+  REQUIRED
+    libzeromq libzmq lib0mq
+  IMPORTED_TARGET
+  )
+\end{codebox}
+
+这里，第一个参数是前缀，它将用于命名存储搜索ZeroMQ库结果的目标：\texttt{PkgConfig::ZeroMQ}。注意，我们需要为系统上的库名传递不同的选项：\texttt{libzeromq}、\texttt{libzmq}和\texttt{lib0mq}。这是因为不同的操作系统和包管理器，可为同一个包选择不同的名称。
+
+\begin{myInfoBox}
+\textbf{NOTE}：\texttt{pkg\_check\_modules}和\texttt{pkg\_search\_module}函数添加了\texttt{IMPORTED\_TARGET}选项，并在CMake 3.6中定义导入目标的功能。3.6之前的版本，只定义了变量\texttt{ZeroMQ\_INCLUDE\_DIRS}(用于include目录)和\texttt{ZeroMQ\_LIBRARIES}(用于链接库)，供后续使用。
+\end{myInfoBox}
+
+
+% --- recipe 10: 3.10-chinese.md ---
+\section{3.10 检测外部库:Ⅱ. 自定义find模块}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-03/recipe-10} 中找到，包含一个C的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+此示例补充了上一节的示例，我们将展示如何编写一个\texttt{find}模块来定位系统上的ZeroMQ消息库，以便能够在非Unix操作系统上检测该库。我们重用服务器-客户端示例代码。
+
+\mySmallsection{如何实施}
+
+这是一个C项目，使用C99标准，并逐步构建CMakeLists.txt文件:
+
+\begin{enumerate}
+\item 声明一个C项目，并要求符合C99标准:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-10 LANGUAGES C)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 将当前源目录\texttt{CMAKE\_CURRENT\_SOURCE\_DIR}，添加到CMake将查找模块的路径列表\texttt{CMAKE\_MODULE\_PATH}中。这样CMake就可以找到，我们自定义的\texttt{FindZeroMQ.cmake}模块:
+
+\begin{codebox}[cmake]
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR})
+\end{codebox}
+
+\item 现在\texttt{FindZeroMQ.cmake}模块是可用的，可以通过这个模块来搜索项目所需的依赖项。由于我们没有使用\texttt{QUIET}选项来查找\texttt{find\_package}，所以当找到库时，状态消息将自动打印:
+
+\begin{codebox}[cmake]
+find_package(ZeroMQ REQUIRED)
+\end{codebox}
+
+\item 我们继续添加\texttt{hwserver}可执行目标。头文件包含目录和链接库是使用\texttt{find\_package}命令成功后，使用\texttt{ZeroMQ\_INCLUDE\_DIRS}和\texttt{ZeroMQ\_LIBRARIES}变量进行指定的:
+
+\begin{codebox}[cmake]
+add_executable(hwserver hwserver.c)
+target_include_directories(hwserver
+  PRIVATE
+    ${ZeroMQ_INCLUDE_DIRS}
+  )
+target_link_libraries(hwserver
+  PRIVATE
+    ${ZeroMQ_LIBRARIES}
+  )
+\end{codebox}
+
+\item 最后，我们对\texttt{hwclient}可执行目标执行相同的操作:
+
+\begin{codebox}[cmake]
+add_executable(hwclient hwclient.c)
+target_include_directories(hwclient
+  PRIVATE
+    ${ZeroMQ_INCLUDE_DIRS}
+  )
+target_link_libraries(hwclient
+  PRIVATE
+    ${ZeroMQ_LIBRARIES}
+  )
+\end{codebox}
+
+\end{enumerate}
+
+此示例的主\texttt{CMakeLists.txt}在使用\texttt{FindZeroMQ.cmake}时，与前一个示例中使用的\texttt{CMakeLists.txt}不同。这个模块使用\texttt{find\_path}和\texttt{find\_library} CMake内置命令，搜索ZeroMQ头文件和库，并使用\texttt{find\_package\_handle\_standard\_args}设置相关变量，就像我们在第3节中做的那样。
+
+\begin{enumerate}
+\item \texttt{FindZeroMQ.cmake}中，检查了\texttt{ZeroMQ\_ROOT}变量是否设置。此变量可用于ZeroMQ库的检测，并引导到自定义安装目录。用户可能设置了\texttt{ZeroMQ\_ROOT}作为环境变量，我们也会进行检查了:
+
+\begin{codebox}[cmake]
+if(NOT ZeroMQ_ROOT)
+    set(ZeroMQ_ROOT "$ENV{ZeroMQ_ROOT}")
+endif()
+\end{codebox}
+
+\item 然后，搜索系统上\texttt{zmq.h}头文件的位置。这是基于\texttt{\_ZeroMQ\_ROOT}变量和\texttt{find\_path}命令进行的:
+
+\begin{codebox}[cmake]
+if(NOT ZeroMQ_ROOT)
+    find_path(_ZeroMQ_ROOT NAMES include/zmq.h)
+else()
+    set(_ZeroMQ_ROOT "${ZeroMQ_ROOT}")
+endif()
+find_path(ZeroMQ_INCLUDE_DIRS NAMES zmq.h HINTS ${_ZeroMQ_ROOT}/include)
+\end{codebox}
+
+\item 如果成功找到头文件，则将\texttt{ZeroMQ\_INCLUDE\_DIRS}设置为其位置。我们继续通过使用字符串操作和正则表达式，寻找相应版本的ZeroMQ库:
+
+\begin{codebox}[cmake]
+set(_ZeroMQ_H ${ZeroMQ_INCLUDE_DIRS}/zmq.h)
+function(_zmqver_EXTRACT _ZeroMQ_VER_COMPONENT _ZeroMQ_VER_OUTPUT)
+set(CMAKE_MATCH_1 "0")
+set(_ZeroMQ_expr "^[ \\t]*#define[ \\t]+${_ZeroMQ_VER_COMPONENT}[ \\t]+([0-9]+)$")
+file(STRINGS "${_ZeroMQ_H}" _ZeroMQ_ver REGEX "${_ZeroMQ_expr}")
+string(REGEX MATCH "${_ZeroMQ_expr}" ZeroMQ_ver "${_ZeroMQ_ver}")
+set(${_ZeroMQ_VER_OUTPUT} "${CMAKE_MATCH_1}" PARENT_SCOPE)
+endfunction()
+_zmqver_EXTRACT("ZMQ_VERSION_MAJOR" ZeroMQ_VERSION_MAJOR)
+_zmqver_EXTRACT("ZMQ_VERSION_MINOR" ZeroMQ_VERSION_MINOR)
+_zmqver_EXTRACT("ZMQ_VERSION_PATCH" ZeroMQ_VERSION_PATCH)
+\end{codebox}
+
+\item 然后，为\texttt{find\_package\_handle\_standard\_args}准备\texttt{ZeroMQ\_VERSION}变量:
+
+\begin{codebox}[cmake]
+if(ZeroMQ_FIND_VERSION_COUNT GREATER 2)
+    set(ZeroMQ_VERSION "${ZeroMQ_VERSION_MAJOR}.${ZeroMQ_VERSION_MINOR}.${ZeroMQ_VERSION_PATCH}")
+else()
+    set(ZeroMQ_VERSION "${ZeroMQ_VERSION_MAJOR}.${ZeroMQ_VERSION_MINOR}")
+endif()
+\end{codebox}
+
+\item 使用\texttt{find\_library}命令搜索ZeroMQ库。因为库的命名有所不同，这里我们需要区分Unix的平台和Windows平台:
+
+\begin{codebox}[cmake]
+if(NOT ${CMAKE_C_PLATFORM_ID} STREQUAL "Windows")
+  find_library(ZeroMQ_LIBRARIES
+    NAMES
+        zmq
+    HINTS
+      ${_ZeroMQ_ROOT}/lib
+      ${_ZeroMQ_ROOT}/lib/x86_64-linux-gnu
+    )
+else()
+  find_library(ZeroMQ_LIBRARIES
+    NAMES
+        libzmq
+      "libzmq-mt-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+      "libzmq-${CMAKE_VS_PLATFORM_TOOLSET}-mt-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+      libzmq_d
+      "libzmq-mt-gd-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+      "libzmq-${CMAKE_VS_PLATFORM_TOOLSET}-mt-gd-${ZeroMQ_VERSION_MAJOR}_${ZeroMQ_VERSION_MINOR}_${ZeroMQ_VERSION_PATCH}"
+    HINTS
+        ${_ZeroMQ_ROOT}/lib
+    )
+endif()
+\end{codebox}
+
+\item 最后，包含了标准\texttt{ FindPackageHandleStandardArgs.cmake}，并调用相应的CMake命令。如果找到所有需要的变量，并且版本匹配，则将\texttt{ZeroMQ\_FOUND}变量设置为\texttt{TRUE}:
+
+\begin{codebox}[cmake]
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(ZeroMQ
+  FOUND_VAR
+    ZeroMQ_FOUND
+  REQUIRED_VARS
+  ZeroMQ_INCLUDE_DIRS
+  ZeroMQ_LIBRARIES
+  VERSION_VAR
+  ZeroMQ_VERSION
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\begin{myInfoBox}
+\textbf{NOTE}：刚才描述的\texttt{FindZeroMQ.cmake}模块已经在 \texthref{https://github.com/zeromq/azmq/blob/master/config/FindZeroMQ.cmake} 上进行了修改。
+\end{myInfoBox}
+
+\mySmallsection{工作原理}
+
+\texttt{find-module}通常遵循特定的模式:
+
+\begin{enumerate}
+\item 检查用户是否为所需的包提供了自定义位置。
+
+\item 使用\texttt{find\_}家族中的命令搜索所需包的必需组件，即头文件、库、可执行程序等等。我们使用\texttt{find\_path}查找头文件的完整路径，并使用\texttt{find\_library}查找库。CMake还提供\texttt{find\_file}、\texttt{find\_program}和\texttt{find\_package}。这些命令的签名如下:
+
+\begin{codebox}[cmake]
+find_path(<VAR> NAMES name PATHS paths)
+\end{codebox}
+
+\item 如果搜索成功，\texttt{<VAR>}将保存搜索结果；如果搜索失败，则会设置为\texttt{<VAR>-NOTFOUND }。\texttt{NAMES}和\texttt{PATHS}分别是CMake应该查找的文件的名称和搜索应该指向的路径。
+
+\item 初步搜索的结果中，可以提取版本号。示例中，ZeroMQ头文件包含库版本，可以使用字符串操作和正则表达式提取库版本信息。
+
+\item 最后，调用\texttt{find\_package\_handle\_standard\_args}命令。处理\texttt{find\_package}命令的\texttt{REQUIRED}、\texttt{QUIET}和版本参数，并设置\texttt{ZeroMQ\_FOUND}变量。
+
+\end{enumerate}
+
+\begin{myInfoBox}
+\textbf{NOTE}：任何CMake命令的完整文档都可以从命令行获得。例如，\texttt{cmake --help-command find\_file}将输出\texttt{find\_file}命令的手册页。对于CMake标准模块的手册，可以在CLI使用\texttt{--help-module}看到。例如，\texttt{cmake --help-module FindPackageHandleStandardArgs}将输出\texttt{FindPackageHandleStandardArgs.cmake}的手册页面。
+\end{myInfoBox}
+
+\mySmallsection{更多信息}
+
+总而言之，有四种方式可用于找到依赖包:
+
+\begin{enumerate}
+\item 使用由包供应商提供CMake文件\texttt{ <package>Config.cmake} ，\texttt{<package>ConfigVersion.cmake}和\texttt{<package>Targets.cmake}，通常会在包的标准安装位置查找。
+
+\item 无论是由CMake还是第三方提供的模块，为所需包使用\texttt{find-module}。
+
+\item 使用\texttt{pkg-config}，如本节的示例所示。
+
+\item 如果这些都不可行，那么编写自己的\texttt{find}模块。
+
+\end{enumerate}
+
+这四种可选方案按相关性进行了排序，每种方法也都有其挑战。
+
+目前，并不是所有的包供应商都提供CMake的Find文件，不过正变得越来越普遍。因为导出CMake目标，使得第三方代码很容易使用它所依赖的库和/或程序附加的依赖。
+
+从一开始，\texttt{Find-module}就一直是CMake中定位依赖的主流手段。但是，它们中的大多数仍然依赖于设置依赖项使用的变量，比如\texttt{Boost\_INCLUDE\_DIRS}、\texttt{PYTHON\_INTERPRETER}等等。这种方式很难在第三方发布自己的包时，确保依赖关系被满足。
+
+使用\texttt{pkg-config}的方法可以很好地进行适配，因为它已经成为Unix系统的标准。然而，也由于这个原因，它不是一个完全跨平台的方法。此外，如CMake文档所述，在某些情况下，用户可能会意外地覆盖检测包，并导致\texttt{pkg-config}提供不正确的信息。
+
+最后的方法是编写自己的查找模块脚本，就像本示例中那样。这是可行的，并且依赖于\texttt{FindPackageHandleStandardArgs.cmake }。然而，编写一个全面的查找模块脚本绝非易事；有需要考虑很多可能性，我们在Unix和Windows平台上，为查找ZeroMQ库文件演示了一个例子。
+
+所有软件开发人员都非常清楚这些问题和困难，正如CMake邮件列表上讨论所示: \texthref{https://cmake.org/pipermail/cmake/2018-May/067556.html} 。\texttt{pkg-config}在Unix包开发人员中是可以接受的，但是它不能很容易地移植到非Unix平台。CMake配置文件功能强大，但并非所有软件开发人员都熟悉CMake语法。公共包规范项目是统一用于包查找的\texttt{pkg-config}和CMake配置文件方法的最新尝试。您可以在项目的网站上找到更多信息: \texthref{https://mwoehlke.github.io/cps/}
+
+在第10章中将讨论，如何使用前面讨论中概述的第一种方法，使第三方应用程序，找到自己的包：为项目提供自己的CMake查找文件。
+
+

@@ -1,0 +1,1689 @@
+% chapterintro
+% ==============================
+% 第4章 导言：4.0-chinese.md
+本章的主要内容有：
+
+\begin{itemize}
+\item 创建一个简单的单元测试
+
+\item 使用Catch2库进行单元测试
+
+\item 使用Google Test库进行单元测试
+
+\item 使用Boost Test进行单元测试
+
+\item 使用动态分析来检测内存缺陷
+
+\item 预期测试失败
+
+\item 使用超时测试运行时间过长的测试
+
+\item 并行测试
+
+\item 运行测试子集
+
+\item 使用测试固件
+
+\end{itemize}
+
+测试代码是开发工具的核心组件。通过单元测试和集成测试自动化测试，不仅可以帮助开发人员尽早回归功能检测，还可以帮助开发人员参与，并了解项目。它可以帮助新开发人员向项目代码提交修改，并确保预期的功能性。对于验证安装是否保留了代码的功能时，自动化测试必不可少。从一开始对单元、模块或库进行测试，可以使用一种纯函数式的风格，将全局变量和全局状态最小化，可让开发者的具有更模块化、更简单的编程风格。
+
+本章中，我们将演示如何使用流行的测试库和框架，将测试集成到CMake构建结构中，并谨记以下目标：
+
+\begin{itemize}
+\item 让用户、开发人员和持续集成服务很容易地运行测试集。应该像使用\texttt{Unix Makefile}时，键入\texttt{make test}一样简单。
+
+\item 通过最小化测试时间，高效地运行测试，最大限度地提高运行测试的概率——理想情况下，每次代码修改都该如此。
+
+\end{itemize}
+
+
+% --- recipe 1: 4.1-chinese.md ---
+\section{4.1 创建一个简单的单元测试}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-01} 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+CTest是CMake的测试工具，本示例中，我们将使用CTest进行单元测试。为了保持对CMake/CTest的关注，我们的测试代码会尽可能的简单。计划是编写和测试能够对整数求和的代码，示例代码只会对整数进行累加，不处理浮点数。就像年轻的卡尔•弗里德里希•高斯(Carl Friedrich Gauss)，被他的老师测试从1到100求和所有自然数一样，我们将要求代码做同样的事情。为了说明CMake没有对实际测试的语言进行任何限制，我们不仅使用C++可执行文件测试代码，还使用Python脚本和shell脚本作为测试代码。为了简单起见，我们将不使用任何测试库来实现，但是我们将在后面的示例中介绍C++测试框架。
+
+\mySmallsection{准备工作}
+
+代码示例由三个文件组成。实现源文件\texttt{sum\_integs.cpp}对整数向量进行求和，并返回累加结果：
+
+\begin{codebox}[cpp]
+#include "sum_integers.hpp"
+
+#include <vector>
+
+int sum_integers(const std::vector<int> integers) {
+    auto sum = 0;
+    for (auto i : integers) {
+        sum += i;
+    }
+    return sum;
+}
+\end{codebox}
+
+这个示例是否是优雅的实现并不重要，接口以\texttt{sum\_integers}的形式导出。接口在\texttt{ sum\_integers.hpp }文件中声明，详情如下:
+
+\begin{codebox}[cpp]
+#pragma once
+
+#include <vector>
+
+int sum_integers(const std::vector<int> integers);
+\end{codebox}
+
+最后，main函数在\texttt{main.cpp}中定义，从\texttt{argv[]}中收集命令行参数，将它们转换成整数向量，调用\texttt{sum\_integers}函数，并将结果打印到输出中:
+
+\begin{codebox}[cpp]
+#include "sum_integers.hpp"
+
+#include <iostream>
+#include <string>
+#include <vector>
+
+// we assume all arguments are integers and we sum them up
+// for simplicity we do not verify the type of arguments
+int main(int argc, char *argv[]) {
+    std::vector<int> integers;
+    for (auto i = 1; i < argc; i++) {
+        integers.push_back(std::stoi(argv[i]));
+    }
+    auto sum = sum_integers(integers);
+  
+    std::cout << sum << std::endl;
+}
+\end{codebox}
+
+测试这段代码使用C++实现(\texttt{test.cpp})，Bash shell脚本实现(\texttt{test.sh})和Python脚本实现(\texttt{test.py})，只要实现可以返回一个零或非零值，从而CMake可以解释为成功或失败。
+
+C++例子(\texttt{test.cpp})中，我们通过调用\texttt{sum\_integers}来验证1 + 2 + 3 + 4 + 5 = 15：
+
+\begin{codebox}[cpp]
+#include "sum_integers.hpp"
+
+#include <vector>
+
+int main() {
+    auto integers = {1, 2, 3, 4, 5};
+    
+  if (sum_integers(integers) == 15) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+\end{codebox}
+
+Bash shell脚本调用可执行文件：
+
+\begin{codebox}[shell]
+#!/usr/bin/env bash
+
+EXECUTABLE=$1
+
+OUTPUT=$($EXECUTABLE 1 2 3 4)
+
+if [ "$OUTPUT" = "10" ]
+then
+    exit 0
+else
+    exit 1
+fi
+\end{codebox}
+
+此外，Python脚本调用可执行文件(使用\texttt{--executable}命令行参数传递)，并使用\texttt{--short}命令行参数执行：
+
+\begin{codebox}[python]
+import subprocess
+import argparse
+
+# test script expects the executable as argument
+parser = argparse.ArgumentParser()
+parser.add_argument('--executable',
+                                         help='full path to executable')
+parser.add_argument('--short',
+                                         default=False,
+                    action='store_true',
+                    help='run a shorter test')
+args = parser.parse_args()
+
+def execute_cpp_code(integers):
+    result = subprocess.check_output([args.executable] + integers)
+    return int(result)
+
+if args.short:
+    # we collect [1, 2, ..., 100] as a list of strings
+    result = execute_cpp_code([str(i) for i in range(1, 101)])
+    assert result == 5050, 'summing up to 100 failed'
+else:
+    # we collect [1, 2, ..., 1000] as a list of strings
+    result = execute_cpp_code([str(i) for i in range(1, 1001)])
+    assert result == 500500, 'summing up to 1000 failed'
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+现在，我们将逐步描述如何为项目设置测试：
+
+\begin{enumerate}
+\item 对于这个例子，我们需要C++11支持，可用的Python解释器，以及Bash shell:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(PythonInterp REQUIRED)
+find_program(BASH_EXECUTABLE NAMES bash REQUIRED)
+\end{codebox}
+
+\item 然后，定义库及主要可执行文件的依赖关系，以及测试可执行文件：
+
+\begin{codebox}[cmake]
+# example library
+add_library(sum_integers sum_integers.cpp)
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+# testing binary
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test sum_integers)
+\end{codebox}
+
+\item 最后，打开测试功能并定义四个测试。最后两个测试， 调用相同的Python脚本，先没有任何命令行参数，再使用\texttt{--short}：
+
+\begin{codebox}[cmake]
+enable_testing()
+add_test(
+  NAME bash_test
+  COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.sh $<TARGET_FILE:sum_up>
+  )
+add_test(
+  NAME cpp_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+add_test(
+  NAME python_test_long
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --executable $<TARGET_FILE:sum_up>
+  )
+add_test(
+  NAME python_test_short
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --short --executable $<TARGET_FILE:sum_up>
+  )
+\end{codebox}
+
+\item 现在，我们已经准备好配置和构建代码。先手动进行测试：
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ./sum_up 1 2 3 4 5
+15
+\end{codebox}
+
+\item 然后，我们可以用\texttt{ctest}运行测试集：
+
+\begin{codebox}[shell]
+$ ctest
+Test project /home/user/cmake-recipes/chapter-04/recipe-01/cxx-example/build
+Start 1: bash_test
+1/4 Test #1: bash_test ........................ Passed 0.01 sec
+Start 2: cpp_test
+2/4 Test #2: cpp_test ......................... Passed 0.00 sec
+Start 3: python_test_long
+3/4 Test #3: python_test_long ................. Passed 0.06 sec
+Start 4: python_test_short
+4/4 Test #4: python_test_short ................ Passed 0.05 sec
+100% tests passed, 0 tests failed out of 4
+Total Test time (real) = 0.12 sec
+\end{codebox}
+
+\item 还应该尝试中断实现，以验证测试集是否能捕捉到更改。
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+这里的两个关键命令：
+
+\begin{itemize}
+\item \texttt{enable\_testing()}，测试这个目录和所有子文件夹(因为我们把它放在主\texttt{CMakeLists.txt})。
+
+\item \texttt{add\_test()}，定义了一个新的测试，并设置测试名称和运行命令。
+
+\end{itemize}
+
+\begin{codebox}[cmake]
+add_test(
+  NAME cpp_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  ) 
+\end{codebox}
+
+上面的例子中，使用了生成器表达式:\texttt{\$<TARGET\_FILE:cpp\_test>}。生成器表达式，是在生成\textbf{构建系统生成时}的表达式。我们将在第5章第9节中详细地描述生成器表达式。此时，我们可以声明\texttt{ \$<TARGET\_FILE:cpp\_test>}变量，将使用\texttt{cpp\_test}可执行目标的完整路径进行替换。
+
+生成器表达式在测试时非常方便，因为不必显式地将可执行程序的位置和名称，可以硬编码到测试中。以一种可移植的方式实现这一点非常麻烦，因为可执行文件和可执行后缀(例如，Windows上是\texttt{.exe}后缀)的位置在不同的操作系统、构建类型和生成器之间可能有所不同。使用生成器表达式，我们不必显式地了解位置和名称。
+
+也可以将参数传递给要运行的\texttt{test}命令，例如：
+
+\begin{codebox}[cmake]
+add_test(
+  NAME python_test_short
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --short --executable $<TARGET_FILE:sum_up>
+  ) 
+\end{codebox}
+
+这个例子中，我们按顺序运行测试，并展示如何缩短总测试时间并行执行测试(第8节)，执行测试用例的子集(第9节)。这里，可以自定义测试命令，可以以任何编程语言运行测试集。CTest关心的是，通过命令的返回码测试用例是否通过。CTest遵循的标准约定是，返回零意味着成功，非零返回意味着失败。可以返回零或非零的脚本，都可以做测试用例。
+
+既然知道了如何定义和执行测试，那么了解如何诊断测试失败也很重要。为此，我们可以在代码中引入一个bug，让所有测试都失败:
+
+\begin{codebox}[shell]
+Start 1: bash_test
+1/4 Test #1: bash_test ........................***Failed 0.01 sec
+    Start 2: cpp_test
+2/4 Test #2: cpp_test .........................***Failed 0.00 sec
+    Start 3: python_test_long
+3/4 Test #3: python_test_long .................***Failed 0.06 sec
+    Start 4: python_test_short
+4/4 Test #4: python_test_short ................***Failed 0.06 sec
+
+0% tests passed, 4 tests failed out of 4
+
+Total Test time (real) = 0.13 sec
+
+The following tests FAILED:
+1 - bash_test (Failed)
+2 - cpp_test (Failed)
+3 - python_test_long (Failed)
+4 - python_test_short (Failed)
+Errors while running CTest
+\end{codebox}
+
+如果我们想了解更多，可以查看文件\texttt{test/Temporary/lasttestsfailure.log}。这个文件包含测试命令的完整输出，并且在分析阶段，要查看的第一个地方。使用以下CLI开关，可以从CTest获得更详细的测试输出：
+
+\begin{itemize}
+\item \texttt{--output-on-failure}:将测试程序生成的任何内容打印到屏幕上，以免测试失败。
+
+\item \texttt{-v}:将启用测试的详细输出。
+
+\item \texttt{-vv}:启用更详细的输出。
+
+\end{itemize}
+
+CTest提供了一个非常方快捷的方式，可以重新运行以前失败的测试；要使用的CLI开关是\texttt{--rerun-failed}，在调试期间非常有用。
+
+\mySmallsection{更多信息}
+
+考虑以下定义:
+
+\begin{codebox}[cmake]
+add_test(
+  NAME python_test_long
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py --executable $<TARGET_FILE:sum_up>
+  )
+\end{codebox}
+
+前面的定义可以通过显式指定脚本运行的\texttt{WORKING\_DIRECTORY}重新表达，如下:
+
+\begin{codebox}[cmake]
+add_test(
+  NAME python_test_long
+  COMMAND ${PYTHON_EXECUTABLE} test.py --executable $<TARGET_FILE:sum_up>
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+\end{codebox}
+
+测试名称可以包含\texttt{/}字符，按名称组织相关测试也很有用，例如：
+
+\begin{codebox}[cmake]
+add_test(
+  NAME python/long
+  COMMAND ${PYTHON_EXECUTABLE} test.py --executable $<TARGET_FILE:sum_up>
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+\end{codebox}
+
+有时候，我们需要为测试脚本设置环境变量。这可以通过\texttt{set\_tests\_properties}实现:
+
+\begin{codebox}[cmake]
+set_tests_properties(python_test
+  PROPERTIES
+    ENVIRONMENT
+      ACCOUNT_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
+      ACCOUNT_HEADER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/account/account.h
+      ACCOUNT_LIBRARY_FILE=$<TARGET_FILE:account>
+  )
+\end{codebox}
+
+这种方法在不同的平台上并不总可行，CMake提供了解决这个问题的方法。下面的代码片段与上面给出的代码片段相同，在执行实际的Python测试脚本之前，通过\texttt{CMAKE\_COMMAND}调用CMake来预先设置环境变量:
+
+\begin{codebox}[cmake]
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env
+    ACCOUNT_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
+    ACCOUNT_HEADER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/account/account.h
+    ACCOUNT_LIBRARY_FILE=$<TARGET_FILE:account>
+    ${PYTHON_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/account/test.py
+  )
+\end{codebox}
+
+同样，要注意使用生成器表达式\texttt{ \$<TARGET\_FILE:account> }来传递库文件的位置。
+
+我们已经使用\texttt{ctest}命令执行测试，CMake还将为生成器创建目标(Unix Makefile生成器为\texttt{make test}，Ninja工具为\texttt{ninja test}，或者Visual Studio为\texttt{RUN\_TESTS})。这意味着，还有另一种(几乎)可移植的方法来运行测试：
+
+\begin{codebox}[shell]
+$ cmake --build . --target test
+\end{codebox}
+
+不幸的是，当使用Visual Studio生成器时，我们需要使用\texttt{RUN\_TESTS}来代替:
+
+\begin{codebox}[shell]
+$ cmake --build . --target RUN_TESTS
+\end{codebox}
+
+\begin{myInfoBox}
+\textbf{NOTE}：\texttt{ctest}提供了丰富的命令行参数。其中一些内容将在以后的示例中探讨。要获得完整的列表，需要使用\texttt{ctest --help}来查看。命令\texttt{cmake --help-manual ctest}会将向屏幕输出完整的ctest手册。
+\end{myInfoBox}
+
+
+% --- recipe 2: 4.2-chinese.md ---
+\section{4.2 使用Catch2库进行单元测试}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-02} 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+前面的配置中，使用返回码来表示\texttt{test.cpp}测试的成功或失败。对于简单功能没问题，但是通常情况下，我们想要使用一个测试框架，它提供了相关基础设施来运行更复杂的测试，包括固定方式进行测试，与数值公差的比较，以及在测试失败时输出更好的错误报告。这里，我们用目前比较流行的测试库Catch2( \texthref{https://github.com/catchorg/Catch2} )来进行演示。这个测试框架有个很好的特性，它可以通过单个头库包含在项目中进行测试，这使得编译和更新框架特别容易。这个配置中，我们将CMake和Catch2结合使用，来测试上一个求和代码。
+
+我们需要\texttt{catch.hpp}头文件，可以从 \texthref{https://github.com/catchorg/Catch2} (我们使用的是版本2.0.1)下载，并将它与\texttt{test.cpp}一起放在项目的根目录下。
+
+\mySmallsection{准备工作}
+
+\texttt{main.cpp}、\texttt{sum\_integers.cpp}和\texttt{sum\_integers.hpp}与之前的示例相同，但将更新\texttt{test.cpp}:
+
+\begin{codebox}[cpp]
+#include "sum_integers.hpp"
+
+// this tells catch to provide a main()
+// only do this in one cpp file
+#define CATCH_CONFIG_MAIN
+#include "catch.hpp"
+#include <vector>
+
+TEST_CASE("Sum of integers for a short vector", "[short]")
+{
+  auto integers = {1, 2, 3, 4, 5};
+  REQUIRE(sum_integers(integers) == 15);
+}
+
+TEST_CASE("Sum of integers for a longer vector", "[long]")
+{
+  std::vector<int> integers;
+  for (int i = 1; i < 1001; ++i)
+  {
+    integers.push_back(i);
+  }
+  REQUIRE(sum_integers(integers) == 500500);
+}
+\end{codebox}
+
+\texttt{catch.hpp}头文件可以从\texthref{https://github.com/catchorg/Catch2} (版本为2.0.1)下载，并将它与\texttt{test.cpp}放在项目的根目录中。
+
+\mySmallsection{具体实施}
+
+使用Catch2库，需要修改之前的所使用\texttt{CMakeList.txt}：
+
+\begin{enumerate}
+\item 保持\texttt{CMakeLists.txt}大多数部分内容不变:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and language
+project(recipe-02 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# example library
+add_library(sum_integers sum_integers.cpp)
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+# testing binary
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test sum_integers)
+\end{codebox}
+
+\item 对于上一个示例的配置，需要保留一个测试，并重命名它。注意，\texttt{--success}选项可传递给单元测试的可执行文件。这是一个Catch2选项，测试成功时，也会有输出:
+
+\begin{codebox}[cmake]
+enable_testing()
+add_test(
+  NAME catch_test
+  COMMAND $<TARGET_FILE:cpp_test> --success
+  )
+\end{codebox}
+
+\item 就是这样！让我们来配置、构建和测试。CTest中，使用\texttt{-V}选项运行测试，以获得单元测试可执行文件的输出:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest -V
+UpdateCTestConfiguration from :/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build/DartConfiguration.tcl
+UpdateCTestConfiguration from :/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build/DartConfiguration.tcl
+Test project /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+Start 1: catch_test
+1: Test command: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/build/cpp_test "--success"
+1: Test timeout computed to be: 10000000
+1:
+1: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1: cpp_test is a Catch v2.0.1 host application.
+1: Run with -? for options
+1:
+1: ----------------------------------------------------------------
+1: Sum of integers for a short vector
+1: ----------------------------------------------------------------
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:10
+1: ...................................................................
+1:
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:12:
+1: PASSED:
+1: REQUIRE( sum_integers(integers) == 15 )
+1: with expansion:
+1: 15 == 15
+1:
+1: ----------------------------------------------------------------
+1: Sum of integers for a longer vector
+1: ----------------------------------------------------------------
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:15
+1: ...................................................................
+1:
+1: /home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:20:
+1: PASSED:
+1: REQUIRE( sum_integers(integers) == 500500 )
+1: with expansion:
+1: 500500 (0x7a314) == 500500 (0x7a314)
+1:
+1: ===================================================================
+1: All tests passed (2 assertions in 2 test cases)
+1:
+1/1 Test #1: catch_test ....................... Passed 0.00 s
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.00 se
+\end{codebox}
+
+\item 我们也可以测试\texttt{cpp\_test}的二进制文件，可以直接从Catch2中看到输出:
+
+\begin{codebox}[shell]
+$ ./cpp_test --success
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+cpp_test is a Catch v2.0.1 host application.
+Run with -? for options
+-------------------------------------------------------------------
+Sum of integers for a short vector
+-------------------------------------------------------------------
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:10
+...................................................................
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:12:
+PASSED:
+REQUIRE( sum_integers(integers) == 15 )
+with expansion:
+15 == 15
+-------------------------------------------------------------------
+Sum of integers for a longer vector
+-------------------------------------------------------------------
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:15
+...................................................................
+/home/user/cmake-cookbook/chapter-04/recipe-02/cxx-example/test.cpp:20:
+PASSED:
+REQUIRE( sum_integers(integers) == 500500 )
+with expansion:
+500500 (0x7a314) == 500500 (0x7a314)
+===================================================================
+All tests passed (2 assertions in 2 test cases)
+\end{codebox}
+
+\item Catch2将生成一个可执行文件，还可以尝试执行以下命令，以探索单元测试框架提供的选项:
+
+\begin{codebox}[shell]
+$ ./cpp_test --help
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+Catch2是一个单头文件测试框架，所以不需要定义和构建额外的目标。只需要确保CMake能找到\texttt{catch.hpp}，从而构建\texttt{test.cpp}即可。为了方便起见，将它放在与\texttt{test.cpp}相同的目录中，我们可以选择一个不同的位置，并使用\texttt{target\_include\_directory}指示该位置。另一种方法是将头部封装到接口库中，这可以在Catch2文档中说明( \texthref{https://github.com/catchorg/catch2/blob/maste/docs/build.systems.md\#cmake} ):
+
+\begin{codebox}[cmake]
+# Prepare "Catch" library for other executables 
+set(CATCH_INCLUDE_DIR
+${CMAKE_CURRENT_SOURCE_DIR}/catch) 
+
+add_library(Catch
+INTERFACE) 
+
+target_include_directories(Catch INTERFACE
+${CATCH_INCLUDE_DIR})
+\end{codebox}
+
+然后，我们对库进行如下链接:
+
+\begin{codebox}[cmake]
+target_link_libraries(cpp_test Catch)
+\end{codebox}
+
+回想一下第3中的讨论，在第1章从简单的可执行库到接口库，是CMake提供的伪目标库，这些伪目标库对于指定项目外部目标的需求非常有用。
+
+\mySmallsection{更多信息}
+
+这是一个简单的例子，主要关注CMake。当然，Catch2提供了更多功能。有关Catch2框架的完整文档，可访问 \texthref{https://github.com/catchorg/Catch2} 。
+
+Catch2代码库包含有CMake函数，用于解析Catch测试并自动创建CMake测试，不需要显式地输入\texttt{add\_test()}函数，可见 \texthref{https://github.com/catchorg/Catch2/blob/master/contrib/ParseAndAddCatchTests.cmake} 。
+
+
+% --- recipe 3: 4.3-chinese.md ---
+\section{4.3 使用Google Test库进行单元测试}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-03} 中找到，包含一个C++的示例。该示例在CMake 3.11版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。在代码库中，有一个支持CMake 3.5的例子。
+\end{myInfoBox}
+
+本示例中，我们将演示如何在CMake的帮助下使用Google Test框架实现单元测试。与前一个配置相比，Google Test框架不仅仅是一个头文件，也是一个库，包含两个需要构建和链接的文件。可以将它们与我们的代码项目放在一起，但是为了使代码项目更加轻量级，我们将选择在配置时，下载一个定义良好的Google Test，然后构建框架并链接它。我们将使用较新的\texttt{FetchContent}模块(从CMake版本3.11开始可用)。第8章中会继续讨论\texttt{FetchContent}，在这里将讨论模块在底层是如何工作的，并且还将演示如何使用\texttt{ExternalProject\_Add}进行模拟。此示例的灵感来自(改编自) \texthref{https://cmake.org/cmake/help/v3.11/module/FetchContent.html} 示例。
+
+\mySmallsection{准备工作}
+
+\texttt{main.cpp}、\texttt{sum\_integers.cpp}和\texttt{sum\_integers.hpp}与之前相同，修改\texttt{test.cpp}:
+
+\begin{codebox}[cpp]
+#include "sum_integers.hpp"
+#include "gtest/gtest.h"
+
+#include <vector>
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
+
+TEST(example, sum_zero) {
+  auto integers = {1, -1, 2, -2, 3, -3};
+  auto result = sum_integers(integers);
+  ASSERT_EQ(result, 0);
+}
+
+TEST(example, sum_five) {
+  auto integers = {1, 2, 3, 4, 5};
+  auto result = sum_integers(integers);
+  ASSERT_EQ(result, 15);
+}
+\end{codebox}
+
+如上面的代码所示，我们显式地将\texttt{gtest.h}，而不将其他Google Test源放在代码项目存储库中，会在配置时使用\texttt{FetchContent}模块下载它们。
+
+\mySmallsection{具体实施}
+
+下面的步骤描述了如何设置\texttt{CMakeLists.txt}，使用GTest编译可执行文件及其相应的测试:
+
+\begin{enumerate}
+\item 与前两个示例相比，\texttt{CMakeLists.txt}的开头基本没有变化，CMake 3.11才能使用\texttt{FetchContent}模块:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
+# project name and language
+project(recipe-03 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+# example library
+add_library(sum_integers sum_integers.cpp)
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+\end{codebox}
+
+\item 然后引入一个\texttt{if}，检查\texttt{ENABLE\_UNIT\_TESTS}。默认情况下，它为\texttt{ON}，但有时需要设置为\texttt{OFF}，以免在没有网络连接时，也能使用Google Test:
+
+\begin{codebox}[cmake]
+option(ENABLE_UNIT_TESTS "Enable unit tests" ON)
+message(STATUS "Enable testing: ${ENABLE_UNIT_TESTS}")
+if(ENABLE_UNIT_TESTS)
+    # all the remaining CMake code will be placed here
+endif()
+\end{codebox}
+
+\item \texttt{if}内部包含\texttt{FetchContent}模块，声明要获取的新内容，并查询其属性:
+
+\begin{codebox}[cmake]
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.8.0
+)
+FetchContent_GetProperties(googletest)
+\end{codebox}
+
+\item 如果内容还没有获取到，将尝试获取并配置它。这需要添加几个可以链接的目标。本例中，我们对\texttt{gtest\_main}感兴趣。该示例还包含一些变通方法，用于使用在Visual Studio下的编译:
+
+\begin{codebox}[cmake]
+if(NOT googletest_POPULATED)
+  FetchContent_Populate(googletest)
+  # Prevent GoogleTest from overriding our compiler/linker options
+  # when building with Visual Studio
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  # Prevent GoogleTest from using PThreads
+  set(gtest_disable_pthreads ON CACHE BOOL "" FORCE)
+  # adds the targers: gtest, gtest_main, gmock, gmock_main
+  add_subdirectory(
+    ${googletest_SOURCE_DIR}
+    ${googletest_BINARY_DIR}
+    )
+  # Silence std::tr1 warning on MSVC
+  if(MSVC)
+    foreach(_tgt gtest gtest_main gmock gmock_main)
+      target_compile_definitions(${_tgt}
+        PRIVATE
+            "_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING"
+      )
+    endforeach()
+  endif()
+endif()
+\end{codebox}
+
+\item 然后，使用\texttt{target\_sources}和\texttt{target\_link\_libraries}命令，定义\texttt{cpp\_test}可执行目标并指定它的源文件:
+
+\begin{codebox}[cmake]
+add_executable(cpp_test "")
+target_sources(cpp_test
+  PRIVATE
+    test.cpp
+  )
+target_link_libraries(cpp_test
+  PRIVATE
+    sum_integers
+    gtest_main
+  )
+\end{codebox}
+
+\item 最后，使用\texttt{enable\_test}和\texttt{add\_test}命令来定义单元测试:
+
+\begin{codebox}[cmake]
+enable_testing()
+add_test(
+  NAME google_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+\end{codebox}
+
+\item 现在，准备配置、构建和测试项目:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Test project /home/user/cmake-cookbook/chapter-04/recipe-03/cxx-example/build
+    Start 1: google_test
+1/1 Test #1: google_test ...................... Passed 0.00 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.00 sec
+\end{codebox}
+
+\item 可以直接运行\texttt{cpp\_test}:
+
+\begin{codebox}[shell]
+$ ./cpp_test
+[==========] Running 2 tests from 1 test case.
+[----------] Global test environment set-up.
+[----------] 2 tests from example
+[ RUN ] example.sum_zero
+[ OK ] example.sum_zero (0 ms)
+[ RUN ] example.sum_five
+[ OK ] example.sum_five (0 ms)
+[----------] 2 tests from example (0 ms total)
+[----------] Global test environment tear-down
+[==========] 2 tests from 1 test case ran. (0 ms total)
+[ PASSED ] 2 tests.
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{FetchContent}模块支持通过\texttt{ExternalProject}模块，在配置时填充内容，并在其3.11版本中成为CMake的标准部分。而\texttt{ExternalProject\_Add()}在构建时(见第8章)进行下载操作，这样\texttt{FetchContent}模块使得构建可以立即进行，这样获取的主要项目和外部项目(在本例中为Google Test)仅在第一次执行CMake时调用，使用\texttt{add\_subdirectory}可以嵌套。
+
+为了获取Google Test，首先声明外部内容:
+
+\begin{codebox}[cmake]
+include(FetchContent)
+
+FetchContent_Declare(
+    googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.8.0
+)
+\end{codebox}
+
+本例中，我们获取了一个带有特定标记的Git库(release-1.8.0)，但是我们也可以从Subversion、Mercurial或HTTP(S)源获取一个外部项目。有关可用选项，可参考相应的\texttt{ExternalProject\_Add}命令的选项，网址是\texthref{https://cmake.org/cmake/help/v3.11/module/ExternalProject.html} 。
+
+调用\texttt{FetchContent\_Populate()}之前，检查是否已经使用\texttt{FetchContent\_GetProperties()}命令处理了内容填充；否则，调用\texttt{FetchContent\_Populate()}超过一次后，就会抛出错误。
+
+\texttt{FetchContent\_Populate(googletest)}用于填充源并定义\texttt{googletest\_SOURCE\_DIR}和\texttt{googletest\_BINARY\_DIR}，可以使用它们来处理Google Test项目(使用\texttt{add\_subdirectory()}，因为它恰好也是一个CMake项目):
+
+\begin{codebox}[cmake]
+add_subdirectory(
+  ${googletest_SOURCE_DIR}
+  ${googletest_BINARY_DIR}
+  )
+\end{codebox}
+
+前面定义了以下目标：\texttt{gtest}、\texttt{gtest\_main}、\texttt{gmock}和\texttt{gmock\_main}。这个配置中，作为单元测试示例的库依赖项，我们只对\texttt{gtest\_main}目标感兴趣：
+
+\begin{codebox}[cmake]
+target_link_libraries(cpp_test
+  PRIVATE
+    sum_integers
+    gtest_main
+)
+\end{codebox}
+
+构建代码时，可以看到如何正确地对Google Test进行配置和构建。有时，我们希望升级到更新的Google Test版本，这时需要更改的唯一一行就是详细说明\texttt{GIT\_TAG}的那一行。
+
+\mySmallsection{更多信息}
+
+了解了\texttt{FetchContent}及其构建时的近亲\texttt{ExternalProject\_Add}，我们将在第8章中重新讨论这些命令。有关可用选项的详细讨论，可参考\texthref{https://cmake.org/cmake/help/v3.11/module/FetchContent.html} 。
+
+本示例中，我们在配置时获取源代码，也可以将它们安装在系统环境中，并使用\texttt{FindGTest}模块来检测库和头文件(https://cmake.org/cmake/help/v3.5/module/FindTest.html )。从3.9版开始，CMake还提供了一个Google Test模块(https://cmake.org/cmake/help/v3.9/module/GoogleTest.html )，它提供了一个\texttt{gtest\_add\_tests}函数。通过搜索Google Test宏的源代码，可以使用此函数自动添加测试。
+
+当然，Google Test有许多有趣的的特性，可在 \texthref{https://github.com/google/googletest} 查看。
+
+
+% --- recipe 4: 4.4-chinese.md ---
+\section{4.4 使用Boost Test进行单元测试}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-04} 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Boost Test是在C++社区中，一个非常流行的单元测试框架。本例中，我们将演示如何使用Boost Test，对求和示例代码进行单元测试。
+
+\mySmallsection{准备工作}
+
+\texttt{main.cpp}、\texttt{sum\_integers.cpp}和\texttt{sum\_integers.hpp}与之前的示例相同，将更新\texttt{test.cpp}作为使用Boost Test库进行的单元测试：
+
+\begin{codebox}[cpp]
+#include "sum_integers.hpp"
+
+#include <vector>
+
+#define BOOST_TEST_MODULE example_test_suite
+#include <boost/test/unit_test.hpp>
+BOOST_AUTO_TEST_CASE(add_example)
+{
+  auto integers = {1, 2, 3, 4, 5};
+  auto result = sum_integers(integers);
+  BOOST_REQUIRE(result == 15);
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+以下是使用Boost Test构建项目的步骤:
+
+\begin{enumerate}
+\item 先从\texttt{CMakeLists.txt}开始:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and language
+project(recipe-04 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# example library
+add_library(sum_integers sum_integers.cpp)
+# main code
+add_executable(sum_up main.cpp)
+target_link_libraries(sum_up sum_integers)
+\end{codebox}
+
+\item 检测Boost库并将\texttt{cpp\_test}链接到它:
+
+\begin{codebox}[cmake]
+find_package(Boost 1.54 REQUIRED COMPONENTS unit_test_framework)
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test
+  PRIVATE
+    sum_integers
+    Boost::unit_test_framework
+  )
+# avoid undefined reference to "main" in test.cpp
+target_compile_definitions(cpp_test
+  PRIVATE
+    BOOST_TEST_DYN_LINK
+  )
+\end{codebox}
+
+\item 最后，定义单元测试:
+
+\begin{codebox}[cmake]
+enable_testing()
+add_test(
+  NAME boost_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+\end{codebox}
+
+\item 下面是需要配置、构建和测试代码的所有内容:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Test project /home/user/cmake-recipes/chapter-04/recipe-04/cxx-example/build
+Start 1: boost_test
+1/1 Test #1: boost_test ....................... Passed 0.01 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.01 sec
+$ ./cpp_test
+Running 1 test case...
+*** No errors detected
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+使用\texttt{find\_package}来检测Boost的\texttt{unit\_test\_framework}组件(参见第3章，第8节)。我们认为这个组件是\texttt{REQUIRED}的，如果在系统环境中找不到它，配置将停止。\texttt{cpp\_test}目标需要知道在哪里可以找到Boost头文件，并且需要链接到相应的库；它们都由\texttt{IMPORTED}库目标\texttt{Boost::unit\_test\_framework}提供，该目标由\texttt{find\_package}设置。
+
+\mySmallsection{更多信息}
+
+本示例中，我们假设系统上安装了Boost。或者，我们可以在编译时获取并构建Boost依赖项。然而，Boost不是轻量级依赖项。我们的示例代码中，我们只使用了最基本的设施，但是Boost提供了丰富的特性和选项，有感兴趣的读者可以去这里看看：\texthref{http://www.boost.org/doc/libs/1\_65\_1/libs/test/doc/html/index.html} 。
+
+
+% --- recipe 5: 4.5-chinese.md ---
+\section{4.5 使用动态分析来检测内存缺陷}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-05} 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+内存缺陷：写入或读取越界，或者内存泄漏(已分配但从未释放的内存)，会产生难以跟踪的bug，最好尽早将它们检查出来。Valgrind( \texthref{http://valgrind.org} )是一个通用的工具，用来检测内存缺陷和内存泄漏。本节中，我们将在使用CMake/CTest测试时使用Valgrind对内存问题进行警告。
+
+\mySmallsection{准备工作}
+
+对于这个配置，需要三个文件。第一个是测试的实现(我们可以调用文件\texttt{leaky\_implementation.cpp}):
+
+\begin{codebox}[cpp]
+#include "leaky_implementation.hpp"
+
+int do_some_work() {
+  
+  // we allocate an array
+  double *my_array = new double[1000];
+  
+  // do some work
+  // ...
+  
+  // we forget to deallocate it
+  // delete[] my_array;
+  
+  return 0;
+}
+\end{codebox}
+
+还需要相应的头文件(\texttt{leaky\_implementation.hpp}):
+
+\begin{codebox}[cpp]
+#pragma once
+
+int do_some_work();
+\end{codebox}
+
+并且，需要测试文件(\texttt{test.cpp}):
+
+\begin{codebox}[cpp]
+#include "leaky_implementation.hpp"
+
+int main() {
+  int return_code = do_some_work();
+  
+  return return_code;
+}
+\end{codebox}
+
+我们希望测试通过，因为\texttt{return\_code}硬编码为\texttt{0}。这里我们也期望检测到内存泄漏，因为\texttt{my\_array}没有释放。
+
+\mySmallsection{具体实施}
+
+下面展示了如何设置CMakeLists.txt来执行代码动态分析:
+
+\begin{enumerate}
+\item 我们首先定义CMake最低版本、项目名称、语言、目标和依赖关系:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-05 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_library(example_library leaky_implementation.cpp)
+add_executable(cpp_test test.cpp)
+target_link_libraries(cpp_test example_library)
+\end{codebox}
+
+\item 然后，定义测试目标，还定义了\texttt{MEMORYCHECK\_COMMAND}:
+
+\begin{codebox}[cmake]
+find_program(MEMORYCHECK_COMMAND NAMES valgrind)
+set(MEMORYCHECK_COMMAND_OPTIONS "--trace-children=yes --leak-check=full")
+# add memcheck test action
+include(CTest)
+enable_testing()
+add_test(
+  NAME cpp_test
+  COMMAND $<TARGET_FILE:cpp_test>
+  )
+\end{codebox}
+
+\item 运行测试集，报告测试通过情况，如下所示:
+
+\begin{codebox}[shell]
+$ ctest
+Test project /home/user/cmake-recipes/chapter-04/recipe-05/cxx-example/build
+Start 1: cpp_test
+1/1 Test #1: cpp_test ......................... Passed 0.00 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.00 sec
+\end{codebox}
+
+\item 现在，我们希望检查内存缺陷，可以观察到被检测到的内存泄漏:
+
+\begin{codebox}[shell]
+$ ctest -T memcheck
+Site: myhost
+Build name: Linux-c++
+Create new tag: 20171127-1717 - Experimental
+Memory check project /home/user/cmake-recipes/chapter-04/recipe-05/cxx-example/build
+Start 1: cpp_test
+1/1 MemCheck #1: cpp_test ......................... Passed 0.40 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.40 sec
+-- Processing memory checking output:
+1/1 MemCheck: #1: cpp_test ......................... Defects: 1
+MemCheck log files can be found here: ( * corresponds to test number)
+/home/user/cmake-recipes/chapter-04/recipe-05/cxx-example/build/Testing/Temporary/MemoryChecker.*.log
+Memory checking results:
+Memory Leak - 1
+\end{codebox}
+
+\item 最后一步，应该尝试修复内存泄漏，并验证\texttt{ctest -T memcheck}没有报告错误。
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+使用\texttt{find\_program(MEMORYCHECK\_COMMAND NAMES valgrind)}查找valgrind，并将\texttt{MEMORYCHECK\_COMMAND}设置为其绝对路径。我们显式地包含CTest模块来启用\texttt{memcheck}测试操作，可以使用\texttt{CTest -T memcheck}来启用这个操作。此外，使用\texttt{set(MEMORYCHECK\_COMMAND\_OPTIONS "--trace-children=yes --leak-check=full")}，将相关参数传递给Valgrind。内存检查会创建一个日志文件，该文件可用于详细记录内存缺陷信息。
+
+\begin{myInfoBox}
+\textbf{NOTE}：一些工具，如代码覆盖率和静态分析工具，可以进行类似地设置。然而，其中一些工具的使用更加复杂，因为需要专门的构建和工具链。Sanitizers就是这样一个例子。有关更多信息，请参见\texthref{https://github.com/arsenm/sanitizers-cmake} 。另外，请参阅第14章，其中讨论了AddressSanitizer和ThreadSanitizer。
+\end{myInfoBox}
+
+\mySmallsection{更多信息}
+
+该方法可向测试面板报告内存缺陷，这里演示的功能也可以独立于测试面板使用。我们将在第14章中重新讨论，与CDash一起使用的情况。
+
+有关Valgrind及其特性和选项的文档，请参见\texthref{http://valgrind.org} 。
+
+
+% --- recipe 6: 4.6-chinese.md ---
+\section{4.6 预期测试失败}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-06} 中找到，包含一个C++的示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+理想情况下，我们希望所有的测试能在每个平台上通过。然而，也可能想要测试预期的失败或异常是否会在受控的设置中进行。这种情况下，我们将把预期的失败定义为成功。我们认为，这通常应该交给测试框架(例如：Catch2或Google Test)的任务，它应该检查预期的失败并向CMake报告成功。但是，在某些情况下，您可能希望将测试的非零返回代码定义为成功；换句话说，您可能想要颠倒成功和失败的定义。在本示例中，我们将演示这种情况。
+
+\mySmallsection{准备工作}
+
+这个配置的测试用例是一个很小的Python脚本(\texttt{test.py})，它总是返回1，CMake将其解释为失败:
+
+\begin{codebox}[python]
+import sys
+
+# simulate a failing test
+sys.exit(1)
+\end{codebox}
+
+\mySmallsection{实施步骤}
+
+如何编写CMakeLists.txt来完成我们的任务:
+
+\begin{enumerate}
+\item 这个示例中，不需要任何语言支持从CMake，但需要Python:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-06 LANGUAGES NONE)
+find_package(PythonInterp REQUIRED)
+\end{codebox}
+
+\item 然后，定义测试并告诉CMake，测试预期会失败:
+
+\begin{codebox}[cmake]
+enable_testing()
+add_test(example ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py)
+set_tests_properties(example PROPERTIES WILL_FAIL true)
+\end{codebox}
+
+\item 最后，报告是一个成功的测试，如下所示:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Test project /home/user/cmake-recipes/chapter-04/recipe-06/example/build
+Start 1: example
+1/1 Test #1: example .......................... Passed 0.00 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.01 sec
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+使用\texttt{set\_tests\_properties(example PROPERTIES WILL\_FAIL true)}，将属性\texttt{WILL\_FAIL}设置为\texttt{true}，这将转换成功与失败。但是，这个特性不应该用来临时修复损坏的测试。
+
+\mySmallsection{更多信息}
+
+如果需要更大的灵活性，可以将测试属性\texttt{PASS\_REGULAR\_EXPRESSION}和\texttt{FAIL\_REGULAR\_EXPRESSION}与\texttt{set\_tests\_properties}组合使用。如果设置了这些参数，测试输出将根据参数给出的正则表达式列表进行检查，如果匹配了正则表达式，测试将通过或失败。可以在测试中设置其他属性，完整的属性列表可以参考：\texthref{https://cmake.org/cmake/help/v3.5/manual/cmake-properties.7.html\#properties-on-tests} 。
+
+
+% --- recipe 7: 4.7-chinese.md ---
+\section{4.7 使用超时测试运行时间过长的测试}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-07} 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+理想情况下，测试集应该花很短的时间进行，以便开发人员经常运行测试，并使每个提交(变更集)进行测试成为可能(或更容易)。然而，有些测试可能会花费更长的时间或者被卡住(例如，由于高文件I/O负载)，我们可能需要设置超时来终止耗时过长的测试，它们延迟了整个测试，并阻塞了部署管道。本示例中，我们将演示一种设置超时的方法，可以针对每个测试设置不同的超时。
+
+\mySmallsection{准备工作}
+
+这个示例是一个Python脚本(\texttt{test.py})，它总是返回0。为了保持这种简单性，并保持对CMake方面的关注，测试脚本除了等待两秒钟外什么也不做。实际中，这个测试脚本将执行更有意义的工作:
+
+\begin{codebox}[python]
+import sys
+import time
+
+# wait for 2 seconds
+time.sleep(2)
+
+# report success
+sys.exit(0)
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+我们需要通知CTest终止测试，如下:
+
+\begin{enumerate}
+\item 我们定义项目名称，启用测试，并定义测试:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name
+project(recipe-07 LANGUAGES NONE)
+# detect python
+find_package(PythonInterp REQUIRED)
+# define tests
+enable_testing()
+# we expect this test to run for 2 seconds
+add_test(example ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py)
+\end{codebox}
+
+\item 另外，我们为测试指定时限，设置为10秒:
+
+\begin{codebox}[cmake]
+set_tests_properties(example PROPERTIES TIMEOUT 10)
+\end{codebox}
+
+\item 知道了如何进行配置和构建，并希望测试能够通过:
+
+\begin{codebox}[shell]
+$ ctest
+Test project /home/user/cmake-recipes/chapter-04/recipe-07/example/build
+Start 1: example
+1/1 Test #1: example .......................... Passed 2.01 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 2.01 sec
+\end{codebox}
+
+\item 现在，为了验证超时是否有效，我们将\texttt{test.py}中的\texttt{sleep}命令增加到11秒，并重新运行测试:
+
+\begin{codebox}[shell]
+$ ctest
+Test project /home/user/cmake-recipes/chapter-04/recipe-07/example/build
+Start 1: example
+1/1 Test #1: example ..........................***Timeout 10.01 sec
+0% tests passed, 1 tests failed out of 1
+Total Test time (real) = 10.01 sec
+The following tests FAILED:
+1 - example (Timeout)
+Errors while running CTest
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{TIMEOUT}是一个方便的属性，可以使用\texttt{set\_tests\_properties}为单个测试指定超时时间。如果测试运行超过了这个设置时间，不管出于什么原因(测试已经停止或者机器太慢)，测试将被终止并标记为失败。
+
+
+% --- recipe 8: 4.8-chinese.md ---
+\section{4.8 并行测试}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-08} 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+大多数现代计算机都有4个或更多个CPU核芯。CTest有个非常棒的特性，能够并行运行测试，如果您有多个可用的核。这可以减少测试的总时间，而减少总测试时间才是真正重要的，从而开发人员频繁地进行测试。本示例中，我们将演示这个特性，并讨论如何优化测试以获得最大的性能。
+
+其他测试可以进行相应地表示，我们把这些测试脚本放在\texttt{CMakeLists.txt}同目录下面的test目录中。
+
+\mySmallsection{准备工作}
+
+我们假设测试集包含标记为a, b，…，j的测试用例，每一个都有特定的持续时间:
+
+\begin{table}[htbp]\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+测试用例 & 该单元的耗时 \\
+\midrule
+a, b, c, d & 0.5 \\
+e, f, g & 1.5 \\
+h & 2.5 \\
+i & 3.5 \\
+j & 4.5 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+时间单位可以是分钟，但是为了保持简单和简短，我们将使用秒。为简单起见，我们可以用Python脚本表示\texttt{test a}，它消耗0.5个时间单位:
+
+\begin{codebox}[python]
+import sys
+import time
+
+# wait for 0.5 seconds
+time.sleep(0.5)
+
+# finally report success
+sys.exit(0)
+\end{codebox}
+
+其他测试同理。我们将把这些脚本放在\texttt{CMakeLists.txt}下面，一个名为\texttt{test}的目录中。
+
+\mySmallsection{具体实施}
+
+对于这个示例，我们需要声明一个测试列表，如下:
+
+\begin{enumerate}
+\item \texttt{CMakeLists.txt}非常简单：
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name
+project(recipe-08 LANGUAGES NONE)
+# detect python
+find_package(PythonInterp REQUIRED)
+# define tests
+enable_testing()
+add_test(a ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/a.py)
+add_test(b ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/b.py)
+add_test(c ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/c.py)
+add_test(d ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/d.py)
+add_test(e ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/e.py)
+add_test(f ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/f.py)
+add_test(g ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/g.py)
+add_test(h ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/h.py)
+add_test(i ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/i.py)
+add_test(j ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/j.py)
+\end{codebox}
+
+\item 我们可以配置项目，使用\texttt{ctest}运行测试，总共需要17秒:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ ctest
+Start 1: a
+1/10 Test #1: a ................................ Passed 0.51 sec
+Start 2: b
+2/10 Test #2: b ................................ Passed 0.51 sec
+Start 3: c
+3/10 Test #3: c ................................ Passed 0.51 sec
+Start 4: d
+4/10 Test #4: d ................................ Passed 0.51 sec
+Start 5: e
+5/10 Test #5: e ................................ Passed 1.51 sec
+Start 6: f
+6/10 Test #6: f ................................ Passed 1.51 sec
+Start 7: g
+7/10 Test #7: g ................................ Passed 1.51 sec
+Start 8: h
+8/10 Test #8: h ................................ Passed 2.51 sec
+Start 9: i
+9/10 Test #9: i ................................ Passed 3.51 sec
+Start 10: j
+10/10 Test #10: j ................................ Passed 4.51 sec
+100% tests passed, 0 tests failed out of 10
+Total Test time (real) = 17.11 sec
+\end{codebox}
+
+\item 现在，如果机器有4个内核可用，我们可以在不到5秒的时间内在4个内核上运行测试集:
+
+\begin{codebox}[shell]
+$ ctest --parallel 4
+Start 10: j
+Start 9: i
+Start 8: h
+Start 5: e
+1/10 Test #5: e ................................ Passed 1.51 sec
+Start 7: g
+2/10 Test #8: h ................................ Passed 2.51 sec
+Start 6: f
+3/10 Test #7: g ................................ Passed 1.51 sec
+Start 3: c
+4/10 Test #9: i ................................ Passed 3.63 sec
+5/10 Test #3: c ................................ Passed 0.60 sec
+Start 2: b
+Start 4: d
+6/10 Test #6: f ................................ Passed 1.51 sec
+7/10 Test #4: d ................................ Passed 0.59 sec
+8/10 Test #2: b ................................ Passed 0.59 sec
+Start 1: a
+9/10 Test #10: j ................................ Passed 4.51 sec
+10/10 Test #1: a ................................ Passed 0.51 sec
+100% tests passed, 0 tests failed out of 10
+Total Test time (real) = 4.74 sec
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+可以观察到，在并行情况下，测试j、i、h和e同时开始。当并行运行时，总测试时间会有显著的减少。观察\texttt{ ctest --parallel 4}的输出，我们可以看到并行测试运行从最长的测试开始，最后运行最短的测试。从最长的测试开始是一个非常好的策略。这就像打包移动的盒子：从较大的项目开始，然后用较小的项目填补空白。a-j测试在4个核上的叠加比较，从最长的开始，如下图所示:
+
+\begin{codebox}[shell]
+--> time
+core 1: jjjjjjjjj
+core 2: iiiiiiibd
+core 3: hhhhhggg
+core 4: eeefffac
+\end{codebox}
+
+按照定义测试的顺序运行，运行结果如下:
+
+\begin{codebox}[shell]
+--> time
+core 1: aeeeiiiiiii
+core 2: bfffjjjjjjjjj
+core 3: cggg
+core 4: dhhhhh
+\end{codebox}
+
+按照定义测试的顺序运行测试，总的来说需要更多的时间，因为这会让2个核大部分时间处于空闲状态(这里的核3和核4)。CMake知道每个测试的时间成本，是因为我们先顺序运行了测试，将每个测试的成本数据记录在\texttt{test/Temporary/CTestCostData.txt}文件中:
+
+\begin{codebox}[shell]
+a 1 0.506776
+b 1 0.507882
+c 1 0.508175
+d 1 0.504618
+e 1 1.51006
+f 1 1.50975
+g 1 1.50648
+h 1 2.51032
+i 1 3.50475
+j 1 4.51111
+\end{codebox}
+
+如果在配置项目之后立即开始并行测试，它将按照定义测试的顺序运行测试，在4个核上的总测试时间明显会更长。这意味着什么呢？这意味着，我们应该减少的时间成本来安排测试？这是一种决策，但事实证明还有另一种方法，我们可以自己表示每次测试的时间成本:
+
+\begin{codebox}[cmake]
+add_test(a ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/a.py)
+add_test(b ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/b.py)
+add_test(c ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/c.py)
+add_test(d ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/d.py)
+set_tests_properties(a b c d PROPERTIES COST 0.5)
+
+add_test(e ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/e.py)
+add_test(f ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/f.py)
+add_test(g ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/g.py)
+set_tests_properties(e f g PROPERTIES COST 1.5)
+
+add_test(h ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/h.py)
+set_tests_properties(h PROPERTIES COST 2.5)
+
+add_test(i ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/i.py)
+set_tests_properties(i PROPERTIES COST 3.5)
+
+add_test(j ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/j.py)
+set_tests_properties(j PROPERTIES COST 4.5)
+\end{codebox}
+
+成本参数可以是一个估计值，也可以从\texttt{test/Temporary/CTestCostData.txt}中提取。
+
+\mySmallsection{更多信息}
+
+除了使用\texttt{ ctest --parallel N}，还可以使用环境变量\texttt{CTEST\_PARALLEL\_LEVEL}将其设置为所需的级别。
+
+
+% --- recipe 9: 4.9-chinese.md ---
+\section{4.9 运行测试子集}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-09} 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+前面的示例中，我们学习了如何在CMake的帮助下并行运行测试，并讨论了从最长的测试开始是最高效的。虽然，这种策略将总测试时间最小化，但是在特定特性的代码开发期间，或者在调试期间，我们可能不希望运行整个测试集。对于调试和代码开发，我们只需要能够运行选定的测试子集。在本示例中，我们将实现这一策略。
+
+\mySmallsection{准备工作}
+
+在这个例子中，我们假设总共有六个测试：前三个测试比较短，名称分别为\texttt{feature-a}、\texttt{feature-b}和\texttt{feature-c}，还有三个长测试，名称分别是\texttt{feature-d}、\texttt{benchmark-a}和\texttt{benchmark-b}。这个示例中，我们可以用Python脚本表示这些测试，可以在其中调整休眠时间:
+
+\begin{codebox}[python]
+import sys
+import time
+
+# wait for 0.1 seconds
+time.sleep(0.1)
+
+# finally report success
+sys.exit(0)
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+以下是我们CMakeLists.txt文件内容的详细内容:
+
+\begin{enumerate}
+\item \texttt{CMakeLists.txt}中，定义了六个测试:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name
+project(recipe-09 LANGUAGES NONE)
+# detect python
+find_package(PythonInterp REQUIRED)
+# define tests
+enable_testing()
+add_test(
+  NAME feature-a
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-a.py
+  )
+add_test(
+  NAME feature-b
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-b.py
+  )
+add_test(
+  NAME feature-c
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-c.py
+  )
+add_test(
+  NAME feature-d
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-d.py
+  )
+add_test(
+  NAME benchmark-a
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/benchmark-a.py
+  )
+add_test(
+  NAME benchmark-b
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/benchmark-b.py
+  )
+\end{codebox}
+
+\item 此外，我们给较短的测试贴上\texttt{quick}的标签，给较长的测试贴上\texttt{long}的标签:
+
+\begin{codebox}[cmake]
+set_tests_properties(
+  feature-a
+  feature-b
+  feature-c
+  PROPERTIES
+    LABELS "quick"
+  )
+set_tests_properties(
+  feature-d
+  benchmark-a
+  benchmark-b
+  PROPERTIES
+    LABELS "long"
+  )
+\end{codebox}
+
+\item 我们现在可以运行测试集了，如下:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ ctest
+Start 1: feature-a
+1/6 Test #1: feature-a ........................ Passed 0.11 sec
+Start 2: feature-b
+2/6 Test #2: feature-b ........................ Passed 0.11 sec
+Start 3: feature-c
+3/6 Test #3: feature-c ........................ Passed 0.11 sec
+Start 4: feature-d
+4/6 Test #4: feature-d ........................ Passed 0.51 sec
+Start 5: benchmark-a
+5/6 Test #5: benchmark-a ...................... Passed 0.51 sec
+Start 6: benchmark-b
+6/6 Test #6: benchmark-b ...................... Passed 0.51 sec
+100% tests passed, 0 tests failed out of 6
+Label Time Summary:
+long = 1.54 sec*proc (3 tests)
+quick = 0.33 sec*proc (3 tests)
+Total Test time (real) = 1.87 sec
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+现在每个测试都有一个名称和一个标签。CMake中所有的测试都是有编号的，所以它们也带有唯一编号。定义了测试标签之后，我们现在可以运行整个集合，或者根据它们的名称(使用正则表达式)、标签或编号运行测试。
+
+按名称运行测试(运行所有具有名称匹配功能的测试):
+
+\begin{codebox}[shell]
+$ ctest -R feature
+
+Start 1: feature-a
+1/4 Test #1: feature-a ........................ Passed 0.11 sec
+Start 2: feature-b
+2/4 Test #2: feature-b ........................ Passed 0.11 sec
+Start 3: feature-c
+3/4 Test #3: feature-c ........................ Passed 0.11 sec
+Start 4: feature-d
+4/4 Test #4: feature-d ........................ Passed 0.51 sec
+100% tests passed, 0 tests failed out of 4
+\end{codebox}
+
+按照标签运行测试(运行所有的长测试):
+
+\begin{codebox}[shell]
+$ ctest -L long
+
+Start 4: feature-d
+1/3 Test #4: feature-d ........................ Passed 0.51 sec
+Start 5: benchmark-a
+2/3 Test #5: benchmark-a ...................... Passed 0.51 sec
+Start 6: benchmark-b
+3/3 Test #6: benchmark-b ...................... Passed 0.51 sec
+100% tests passed, 0 tests failed out of 3
+\end{codebox}
+
+根据数量运行测试(运行测试2到4)产生的结果是:
+
+\begin{codebox}[shell]
+$ ctest -I 2,4
+
+Start 2: feature-b
+1/3 Test #2: feature-b ........................ Passed 0.11 sec
+Start 3: feature-c
+2/3 Test #3: feature-c ........................ Passed 0.11 sec
+Start 4: feature-d
+3/3 Test #4: feature-d ........................ Passed 0.51 sec
+100% tests passed, 0 tests failed out of 3
+\end{codebox}
+
+\mySmallsection{更多信息}
+
+尝试使用\texttt{ \$ ctest --help }，将看到有大量的选项可供用来定制测试。
+
+
+% --- recipe 10: 4.10-chinese.md ---
+\section{4.10 使用测试固件}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-04/recipe-10} 中找到。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+这个示例的灵感来自于Craig Scott，我们建议读者也参考相应的博客文章来了解更多的背景知识，\texthref{https://crascit.com/2016/10/18/test-fixtures-withcmake-ctest/} ，此示例的动机是演示如何使用测试固件。这对于更复杂的测试非常有用，这些测试需要在测试运行前进行设置，以及在测试完成后执行清理操作(例如：创建示例数据库、设置连接、断开连接、清理测试数据库等等)。我们需要运行一个设置或清理操作的测试，并能够以一种可预测和健壮的方式自动触发这些步骤，而不需要引入代码重复。这些设置和清理步骤可以委托给测试框架(例如Google Test或Catch2)，我们在这里将演示如何在CMake级别实现测试固件。
+
+\mySmallsection{准备工作}
+
+我们将准备4个Python脚本，并将它们放在\texttt{test}目录下:\texttt{setup.py}、\texttt{features-a.py}、\texttt{features-b.py}和\texttt{clean-up.py}。
+
+\mySmallsection{具体实施}
+
+我们从\texttt{CMakeLists.txt}结构开始，附加一些步骤如下:
+
+\begin{enumerate}
+\item 基础CMake语句:
+
+\begin{codebox}[cmake]
+# set minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name
+project(recipe-10 LANGUAGES NONE)
+# detect python
+find_package(PythonInterp REQUIRED)
+# define tests
+enable_testing()
+\end{codebox}
+
+\item 然后，定义了4个测试步骤，并将它们绑定到一个固件上:
+
+\begin{codebox}[cmake]
+add_test(
+  NAME setup
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/setup.py
+  )
+set_tests_properties(
+  setup
+  PROPERTIES
+    FIXTURES_SETUP my-fixture
+  )
+add_test(
+  NAME feature-a
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-a.py
+  )
+add_test(
+  NAME feature-b
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/feature-b.py
+  )
+set_tests_properties(
+  feature-a
+  feature-b
+  PROPERTIES
+    FIXTURES_REQUIRED my-fixture
+  )
+add_test(
+  NAME cleanup
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/cleanup.py
+  )
+set_tests_properties(
+  cleanup
+  PROPERTIES
+    FIXTURES_CLEANUP my-fixture
+  )
+\end{codebox}
+
+\item 运行整个集合，如下面的输出所示:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ ctest
+Start 1: setup
+1/4 Test #1: setup ............................ Passed 0.01 sec
+Start 2: feature-a
+2/4 Test #2: feature-a ........................ Passed 0.01 sec
+Start 3: feature-b
+3/4 Test #3: feature-b ........................ Passed 0.00 sec
+Start 4: cleanup
+4/4 Test #4: cleanup .......................... Passed 0.01 sec
+100% tests passed, 0 tests failed out of 4
+\end{codebox}
+
+\item 然而，当我们试图单独运行测试特性时。它正确地调用设置步骤和清理步骤:
+
+\begin{codebox}[shell]
+$ ctest -R feature-a
+Start 1: setup
+1/3 Test #1: setup ............................ Passed 0.01 sec
+Start 2: feature-a
+2/3 Test #2: feature-a ........................ Passed 0.00 sec
+Start 4: cleanup
+3/3 Test #4: cleanup .......................... Passed 0.01 sec
+100% tests passed, 0 tests failed out of 3
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+在本例中，我们定义了一个文本固件，并将其称为\texttt{my-fixture}。我们为安装测试提供了\texttt{FIXTURES\_SETUP}属性，并为清理测试了\texttt{FIXTURES\_CLEANUP}属性，并且使用\texttt{FIXTURES\_REQUIRED}，我们确保测试\texttt{feature-a}和\texttt{feature-b}都需要安装和清理步骤才能运行。将它们绑定在一起，可以确保在定义良好的状态下，进入和离开相应的步骤。
+
+

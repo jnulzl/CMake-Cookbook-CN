@@ -1,0 +1,1737 @@
+% chapterintro
+% ==============================
+% 第9章 导言：9.0-chinese.md
+本章的主要内容如下：
+
+\begin{itemize}
+\item 使用C/C++库构建Fortran项目
+
+\item 使用Fortran库构建C/C++项目
+
+\item 使用Cython构建C++和Python项目
+
+\item 使用Boost.Python构建C++和Python项目
+
+\item 使用pybind11构建C++和Python项目
+
+\item 使用Python CFFI混合C，C++，Fortran和Python
+
+\end{itemize}
+
+有很多的库比较适合特定领域的任务。我们的库直接使用这些专业库，是一中快捷的方式，这样就可以使用来自其他专家组的多年经验进行开发。随着计算机体系结构和编译器的发展，编程语言也在不断发展。几年前，大多数科学软件都是用Fortran语言编写的，而现在，C/C++和解释语言Python正占据着语言中心舞台。将编译语言代码与解释语言的代码集成在一起，变得确实越来越普遍，这样做有以下好处:
+
+\begin{itemize}
+\item 用户可以需要进行定制和扩展功能，以满足需求。
+
+\item 可以将Python等语言的表达能力与编译语言的性能结合起来，后者在内存寻址方面效率接近于极致，达到两全其美的目的。
+
+\end{itemize}
+
+正如之前的示例中展示的那样，可以使用\texttt{project}命令通过\texttt{LANGUAGES}关键字设置项目中使用的语言。CMake支持许多(但不是所有)编译的编程语言。从CMake 3.5开始，各种风格的汇编(如ASM-ATT，ASM，ASM-MASM和ASM- NASM)、C、C++、Fortran、Java、RC (Windows资源编译器)和Swift都可以选择。CMake 3.8增加了对另外两种语言的支持：C\#和CUDA(请参阅发布说明:\texthref{https://cmake.org/cmake/help/v3.8/release/3.8.html\#languages} )。
+
+本章中，我们将展示如何以一种可移植且跨平台的方式集成用不同编译(C/C++和Fortran)和解释语言(Python)编写的代码。我们将展示如何利用CMake和一些工具集成不同编程语言。
+
+
+% --- recipe 1: 9.1-chinese.md ---
+\section{9.1 使用C/C++库构建Fortran项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-9/recipe-01} 中找到，其中有两个示例：一个是Fortran与C的混例，另一个是Fortran和C++的混例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Fortran作为高性能计算语言有着悠久的历史。目前，许多线性代数库仍然使用Fortran语言编写，许多大型的数字处理包也保持与过去几十年的代码兼容。而Fortran提出了一个很自然的语法处理数值数组，它缺乏与操作系统交互，所以为了编程的通用性，需要一个互操作性层(使用C实现)，才发布了Fortran 2003标准。本示例将展示如何用C系统库和自定义C代码来对接Fortran代码。
+
+\mySmallsection{准备工作}
+
+第7章中，我们把项目结构列为一个树。每个子目录都有一个\texttt{CMakeLists.txt}文件，其中包含与该目录相关的指令。这使我们可以对子目录进行限制中，如这个例子：
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+└── src
+      ├── bt-randomgen-example.f90
+      ├── CMakeLists.txt
+      ├── interfaces
+      │         ├── CMakeLists.txt
+      │         ├── interface_backtrace.f90
+      │         ├── interface_randomgen.f90
+      │         └── randomgen.c
+      └── utils
+      ├── CMakeLists.txt
+      └── util_strings.f90
+\end{codebox}
+
+我们的例子中，\texttt{src}子目录中包括\texttt{bt-randomgen-example.f90}，会将源码编译成可执行文件。另外两个子目录\texttt{interface}和\texttt{utils}包含更多的源代码，这些源代码将被编译成库。
+
+\texttt{interfaces}子目录中的源代码展示了如何包装向后追踪的C系统库。例如，\texttt{interface\_backtrace.f90 }:
+
+\begin{codebox}[fortran]
+module interface_backtrace
+
+  implicit none
+  
+  interface
+    function backtrace(buffer, size) result(bt) bind(C, name="backtrace")
+      use, intrinsic :: iso_c_binding, only: c_int, c_ptr
+      type(c_ptr) :: buffer
+      integer(c_int), value :: size
+      integer(c_int) :: bt
+    end function
+    
+    subroutine backtrace_symbols_fd(buffer, size, fd) bind(C, name="backtrace_symbols_fd")
+      use, intrinsic :: iso_c_binding, only: c_int, c_ptr
+      type(c_ptr) :: buffer
+      integer(c_int), value :: size, fd
+    end subroutine
+  end interface
+end module
+\end{codebox}
+
+上面的例子演示了：
+
+\begin{itemize}
+\item 内置\texttt{iso\_c\_binding}模块，确保Fortran和C类型和函数的互操作性。
+
+\item \texttt{interface}声明，将函数在单独库中绑定到相应的符号上。
+
+\item \texttt{bind(C)}属性，为声明的函数进行命名修饰。
+
+\end{itemize}
+
+这个子目录还包含两个源文件:
+
+\begin{itemize}
+\item randomgen.c：这是一个C源文件，它对外公开了一个函数，使用C标准\texttt{rand}函数在一个区间内生成随机整数。
+
+\item interface\_randomgen.f90：它将C函数封装在Fortran可执行文件中使用。
+
+\end{itemize}
+
+\mySmallsection{具体实施}
+
+我们有4个\texttt{CMakeLists.txt}实例要查看——根目录下1个，子目录下3个。让我们从根目录的\texttt{CMakeLists.txt}开始:
+
+\begin{enumerate}
+\item 声明一个Fortran和C的混合语言项目:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES Fortran C)
+\end{codebox}
+
+\item CMake将静态库和动态库保存在\texttt{build}目录下的\texttt{lib}目录中。可执行文件保存在\texttt{bin}目录下，Fortran编译模块文件保存在\texttt{modules}目录下:
+
+\begin{codebox}[cmake]
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/lib)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
+set(CMAKE_Fortran_MODULE_DIRECTORY
+${CMAKE_CURRENT_BINARY_DIR}/modules)
+\end{codebox}
+
+\item 接下来，我们进入第一个子\texttt{CMakeLists.txt}，添加\texttt{src}子目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(src)
+\end{codebox}
+
+\item \texttt{src/CMakeLists.txt}文件添加了两个子目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(interfaces)
+add_subdirectory(utils)
+\end{codebox}
+
+\end{enumerate}
+
+在\texttt{interfaces}子目录中，我们将执行以下操作:
+
+\begin{enumerate}
+\item 包括\texttt{ FortranCInterface.cmak}模块，并验证C和Fortran编译器可以正确地交互:
+
+\begin{codebox}[cmake]
+include(FortranCInterface)
+FortranCInterface_VERIFY()
+\end{codebox}
+
+\item 接下来，我们找到Backtrace系统库，因为我们想在Fortran代码中使用它:
+
+\begin{codebox}[cmake]
+find_package(Backtrace REQUIRED)
+\end{codebox}
+
+\item 然后，创建一个共享库目标，其中包含Backtrace包装器、随机数生成器，以及Fortran包装器的源文件:
+
+\begin{codebox}[cmake]
+add_library(bt-randomgen-wrap SHARED "")
+target_sources(bt-randomgen-wrap
+  PRIVATE
+    interface_backtrace.f90
+    interface_randomgen.f90
+    randomgen.c
+  )
+\end{codebox}
+
+\item 我们还为新生成的库目标设置了链接库。使用\texttt{PUBLIC}属性，以便连接到其他目标时，能正确地看到依赖关系:
+
+\begin{codebox}[cmake]
+target_link_libraries(bt-randomgen-wrap
+  PUBLIC
+    ${Backtrace_LIBRARIES}
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\texttt{utils}子目录中，还有一个\texttt{CMakeLists.txt}，其只有一单行程序：我们创建一个新的库目标，子目录中的源文件将被编译到这个目标库中。并与这个目标没有依赖关系:
+
+\begin{codebox}[cmake]
+add_library(utils SHARED util_strings.f90)
+\end{codebox}
+
+回到\texttt{src/CMakeLists.txt}:
+
+\begin{enumerate}
+\item 使用\texttt{ bt-randomgen-example.f90 }添加一个可执行目标:
+
+\begin{codebox}[cmake]
+add_executable(bt-randomgen-example bt-randomgen-example.f90)
+\end{codebox}
+
+\item 最后，将在子\texttt{CMakeLists.txt}中生成的库目标，并链接到可执行目标:
+
+\begin{codebox}[cmake]
+target_link_libraries(bt-randomgen-example
+  PRIVATE
+    bt-randomgen-wrap
+    utils
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+确定链接了正确库之后，需要保证程序能够正确调用函数。每个编译器在生成机器码时都会执行命名检查。不过，这种操作的约定不是通用的，而是与编译器相关的。\texttt{FortranCInterface}，我们已经在第3章第4节时，检查所选C编译器与Fortran编译器的兼容性。对于当前的目的，命名检查并不是一个真正的问题。Fortran 2003标准提供了可选\texttt{name}参数的函数和子例程定义了\texttt{bind}属性。如果提供了这个参数，编译器将使用程序员指定的名称为这些子例程和函数生成符号。例如，backtrace函数可以从C语言中暴露给Fortran，并保留其命名:
+
+\begin{codebox}[cmake]
+function backtrace(buffer, size) result(bt) bind(C, name="backtrace")
+\end{codebox}
+
+\mySmallsection{更多信息}
+
+\texttt{interface/CMakeLists.txt}中的CMake代码还表明，可以使用不同语言的源文件创建库。CMake能够做到以下几点:
+
+\begin{itemize}
+\item 列出的源文件中获取目标文件，并识别要使用哪个编译器。
+
+\item 选择适当的链接器，以便构建库(或可执行文件)。
+
+\end{itemize}
+
+CMake如何决定使用哪个编译器？在\texttt{project}命令时使用参数\texttt{LANGUAGES}指定，这样CMake会检查系统上给定语言编译器。当使用源文件列表添加目标时，CMake将根据文件扩展名选择适当地编译器。因此，以\texttt{.c}结尾的文件使用C编译器编译，而以\texttt{.f90}结尾的文件(如果需要预处理，可以使用\texttt{.F90})将使用Fortran编译器编译。类似地，对于C++， \texttt{.cpp}或\texttt{.cxx}扩展将触发\texttt{C++}编译器。我们只列出了C/C++和Fortran语言的一些可能的、有效的文件扩展名，但是CMake可以识别更多的扩展名。如果您的项目中的文件扩展名，由于某种原因不在可识别的扩展名之列，该怎么办？源文件属性可以用来告诉CMake在特定的源文件上使用哪个编译器，就像这样：
+
+\begin{codebox}[cmake]
+set_source_files_properties(my_source_file.axx
+  PROPERTIES
+    LANGUAGE CXX
+  )
+\end{codebox}
+
+那链接器呢？CMake如何确定目标的链接器语言？对于不混合编程语言的目标很简单：通过生成目标文件的编译器命令调用链接器即可。如果目标混合了多个语言，就像示例中一样，则根据在语言混合中，优先级最高的语言来选择链接器语言。比如，我们的示例中混合了Fortran和C，因此Fortran语言比C语言具有更高的优先级，因此使用Fortran用作链接器语言。当混合使用Fortran和C++时，后者具有更高的优先级，因此C++被用作链接器语言。就像编译器语言一样，我们可以通过目标相应的\texttt{LINKER\_LANGUAGE}属性，强制CMake为我们的目标使用特定的链接器语言:
+
+\begin{codebox}[cmake]
+set_target_properties(my_target
+  PROPERTIES
+    LINKER_LANGUAGE Fortran
+  )
+\end{codebox}
+
+
+% --- recipe 2: 9.2-chinese.md ---
+\section{9.2 使用Fortran库构建C/C++项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-9/recipe-02} 中找到，其中有一个示例：一个是C++、C和Fortran的混例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+第3章第4节，展示了如何检测Fortran编写的BLAS和LAPACK线性代数库，以及如何在C++代码中使用它们。这里，将重新讨论这个方式，但这次的角度有所不同：较少地关注检测外部库，会更深入地讨论混合C++和Fortran的方面，以及名称混乱的问题。
+
+\mySmallsection{准备工作}
+
+本示例中，我们将重用第3章第4节源代码。虽然，我们不会修改源码或头文件，但我们会按照第7章“结构化项目”中，讨论的建议修改项目树结构，并得到以下源代码结构:
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+├── README.md
+└── src
+      ├── CMakeLists.txt
+      ├── linear-algebra.cpp
+      └── math
+            ├── CMakeLists.txt
+            ├── CxxBLAS.cpp
+            ├── CxxBLAS.hpp
+            ├── CxxLAPACK.cpp
+            └── CxxLAPACK.hpp
+\end{codebox}
+
+这里，收集了BLAS和LAPACK的所有包装器，它们提供了\texttt{src/math}下的数学库了，主要程序为\texttt{ linear-algebra.cpp}。因此，所有源都在\texttt{src}子目录下。我们还将CMake代码分割为三个\texttt{CMakeLists.txt}文件，现在来讨论这些文件。
+
+\mySmallsection{具体实施}
+
+这个项目混合了C++(作为该示例的主程序语言)和C(封装Fortran子例程所需的语言)。在根目录下的\texttt{CMakeLists.txt}文件中，我们需要做以下操作:
+
+\begin{enumerate}
+\item 声明一个混合语言项目，并选择C++标准：
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02 LANGUAGES CXX C Fortran)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 使用\texttt{GNUInstallDirs}模块来设置CMake将静态和动态库，以及可执行文件保存的标准目录。我们还指示CMake将Fortran编译的模块文件放在\texttt{modules}目录下:
+
+\begin{codebox}[cmake]
+include(GNUInstallDirs)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
+    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_BINDIR})
+set(CMAKE_Fortran_MODULE_DIRECTORY ${PROJECT_BINARY_DIR}/modules)
+\end{codebox}
+
+\item 然后，进入下一个子目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(src)
+\end{codebox}
+
+\end{enumerate}
+
+子文件\texttt{src/CMakeLists.txt}添加了另一个目录\texttt{math}，其中包含线性代数包装器。在\texttt{src/math/CMakeLists.txt}中，我们需要以下操作:
+
+\begin{enumerate}
+\item 调用\texttt{find\_package}来获取BLAS和LAPACK库的位置:
+
+\begin{codebox}[cmake]
+find_package(BLAS REQUIRED)
+find_package(LAPACK REQUIRED)
+\end{codebox}
+
+\item 包含\texttt{FortranCInterface.cmake}模块，并验证Fortran、C和C++编译器是否兼容:
+
+\begin{codebox}[cmake]
+include(FortranCInterface)
+FortranCInterface_VERIFY(CXX)
+\end{codebox}
+
+\item 我们还需要生成预处理器宏来处理BLAS和LAPACK子例程的名称问题。同样，\texttt{FortranCInterface}通过在当前构建目录中生成一个名为\texttt{fc\_mangl.h}的头文件来提供协助:
+
+\begin{codebox}[cmake]
+FortranCInterface_HEADER(
+  fc_mangle.h
+  MACRO_NAMESPACE "FC_"
+  SYMBOLS DSCAL DGESV
+  )
+\end{codebox}
+
+\item 接下来，添加了一个库，其中包含BLAS和LAPACK包装器的源代码。我们还指定要找到头文件和库的目录。注意\texttt{PUBLIC}属性，它允许其他依赖于\texttt{math}的目标正确地获得它们的依赖关系:
+
+\begin{codebox}[cmake]
+add_library(math "")
+target_sources(math
+  PRIVATE
+    CxxBLAS.cpp
+    CxxLAPACK.cpp
+  )
+target_include_directories(math
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+  )
+target_link_libraries(math
+  PUBLIC
+    ${LAPACK_LIBRARIES}
+  )
+\end{codebox}
+
+\end{enumerate}
+
+回到\texttt{src/CMakeLists.txt}，我们最终添加了一个可执行目标，并将其链接到BLAS/LAPACK包装器的数学库:
+
+\begin{codebox}[cmake]
+add_executable(linear-algebra "")
+
+target_sources(linear-algebra
+  PRIVATE
+    linear-algebra.cpp
+  )
+
+target_link_libraries(linear- algebra
+  PRIVATE
+    math
+  )
+\end{codebox}
+
+\mySmallsection{工作原理}
+
+使用\texttt{find\_package}确定了要链接到的库。方法和之前一样，需要确保程序能够正确地调用它们定义的函数。第3章第4节中，我们面临的问题是编译器的名称符号混乱。我们使用\texttt{FortranCInterface}模块来检查所选的C和C++编译器与Fortran编译器的兼容性。我们还使用\texttt{FortranCInterface\_HEADER}函数生成带有宏的头文件，以处理Fortran子例程的名称混乱。并通过以下代码实现:
+
+\begin{codebox}[cmake]
+FortranCInterface_HEADER(
+  fc_mangle.h
+  MACRO_NAMESPACE "FC_"
+  SYMBOLS DSCAL DGESV
+)
+\end{codebox}
+
+这个命令将生成\texttt{fc\_mangl.h}头文件，其中包含从Fortran编译器推断的名称混乱宏，并将其保存到当前二进制目录\texttt{CMAKE\_CURRENT\_BINARY\_DIR}中。我们小心地将\texttt{CMAKE\_CURRENT\_BINARY\_DIR}设置为数学目标的包含路径。生成的\texttt{fc\_mangle.h}如下:
+
+\begin{codebox}[cpp]
+#ifndef FC_HEADER_INCLUDED
+#define FC_HEADER_INCLUDED
+
+/* Mangling for Fortran global symbols without underscores. */
+#define FC_GLOBAL(name,NAME) name##_
+
+/* Mangling for Fortran global symbols with underscores. */
+#define FC_GLOBAL_(name,NAME) name##_
+
+/* Mangling for Fortran module symbols without underscores. */
+#define FC_MODULE(mod_name,name, mod_NAME,NAME) __##mod_name##_MOD_##name
+
+/* Mangling for Fortran module symbols with underscores. */
+#define FC_MODULE_(mod_name,name, mod_NAME,NAME) __##mod_name##_MOD_##name
+
+/* Mangle some symbols automatically. */
+#define DSCAL FC_GLOBAL(dscal, DSCAL)
+#define DGESV FC_GLOBAL(dgesv, DGESV)
+#endif
+\end{codebox}
+
+本例中的编译器使用下划线进行错误处理。由于Fortran不区分大小写，子例程可能以小写或大写出现，这就说明将这两种情况传递给宏的必要性。注意，CMake还将为隐藏在Fortran模块后面的符号生成宏。
+
+\begin{myInfoBox}
+\textbf{NOTE}：现在，BLAS和LAPACK的许多实现都在Fortran子例程附带了一个C的包装层。这些包装器已经标准化，分别称为CBLAS和LAPACKE。
+\end{myInfoBox}
+
+由于已经将源组织成库目标和可执行目标，所以我们应该对目标的\texttt{PUBLIC}、\texttt{INTERFACE}和\texttt{PRIVATE}可见性属性的使用进行评论。与源文件一样，包括目录、编译定义和选项，当与\texttt{target\_link\_libraries}一起使用时，这些属性的含义是相同的:
+
+\begin{itemize}
+\item 使用\texttt{PRIVATE}属性，库将只链接到当前目标，而不链接到使用它的任何其他目标。
+
+\item 使用\texttt{INTERFACE}属性，库将只链接到使用当前目标作为依赖项的目标。
+
+\item 使用\texttt{PUBLIC}属性，库将被链接到当前目标，以及将其作为依赖项使用的任何其他目标。
+
+\end{itemize}
+
+
+% --- recipe 3: 9.3-chinese.md ---
+\section{9.3 使用Cython构建C++和Python项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-9/recipe-03} 中找到，其中有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Cython是一个静态编译器，它允许为Python编写C扩展。Cython是一个非常强大的工具，使用Cython编程语言(基于Pyrex)。Cython的一个典型用例是加快Python代码的速度，它也可以用于通过Cython层使Python与C(++)接口对接。本示例中，我们将重点介绍后一种用例，并演示如何在CMake的帮助下使用Cython与C(++)和Python进行对接。
+
+\mySmallsection{准备工作}
+
+我们将使用以下C++代码(\texttt{account.cpp}):
+
+\begin{codebox}[cpp]
+#include "account.hpp"
+Account::Account() : balance(0.0) {}
+Account::~Account() {}
+void Account::deposit(const double amount) { balance += amount; }
+void Account::withdraw(const double amount) { balance -= amount; }
+double Account::get_balance() const { return balance; }
+\end{codebox}
+
+代码提供了以下接口(\texttt{account.hpp}):
+
+\begin{codebox}[cpp]
+#pragma once
+
+class Account {
+public:
+  Account();
+  ~Account();
+  
+  void deposit(const double amount);
+  void withdraw(const double amount);
+  double get_balance() const;
+  
+private:
+    double balance;
+};
+\end{codebox}
+
+使用这个示例代码，我们可以创建余额为零的银行帐户。可以在帐户上存款和取款，还可以使用\texttt{get\_balance()}查询帐户余额。余额本身是\texttt{Account}类的私有成员。
+
+我们的目标是能够直接从Python与这个C++类进行交互。换句话说，在Python方面，我们希望能够做到这一点:
+
+\begin{codebox}[python]
+account = Account()
+
+account.deposit(100.0)
+account.withdraw(50.0)
+
+balance = account.get_balance()
+\end{codebox}
+
+为此，需要一个Cython接口文件(调用\texttt{account.pyx}):
+
+\begin{codebox}[python]
+# describe the c++ interface
+cdef extern from "account.hpp":
+  cdef cppclass Account:
+    Account() except +
+    void deposit(double)
+    void withdraw(double)
+    double get_balance()
+
+# describe the python interface
+cdef class pyAccount:
+  cdef Account *thisptr
+  def __cinit__(self):
+    self.thisptr = new Account()
+  def __dealloc__(self):
+    del self.thisptr
+  def deposit(self, amount):
+    self.thisptr.deposit(amount)
+  def withdraw(self, amount):
+    self.thisptr.withdraw(amount)
+  def get_balance(self):
+    return self.thisptr.get_balance()
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+如何生成Python接口:
+
+\begin{enumerate}
+\item \texttt{CMakeLists.txt}定义CMake依赖项、项目名称和语言:
+
+\begin{codebox}[cmake]
+# define minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and supported language
+project(recipe-03 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item Windows上，最好不要保留未定义的构建类型，这样我们就可以将该项目的构建类型与Python环境的构建类型相匹配。这里我们默认为Release类型:
+
+\begin{codebox}[cmake]
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+\end{codebox}
+
+\item 在示例中，还需要Python解释器:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+\end{codebox}
+
+\item 下面的CMake代码将构建Python模块:
+
+\begin{codebox}[cmake]
+# directory cointaining UseCython.cmake and FindCython.cmake
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake-cython)
+# this defines cython_add_module
+include(UseCython)
+# tells UseCython to compile this file as a c++ file
+set_source_files_properties(account.pyx PROPERTIES CYTHON_IS_CXX TRUE)
+# create python module
+cython_add_module(account account.pyx account.cpp)
+# location of account.hpp
+target_include_directories(account
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+\end{codebox}
+
+\item 定义一个测试：
+
+\begin{codebox}[cmake]
+# turn on testing
+enable_testing()
+# define test
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env ACCOUNT_MODULE_PATH=$<TARGET_FILE_DIR:account>
+    ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py
+  )
+\end{codebox}
+
+\item \texttt{python\_test}执行\texttt{test.py}，这里进行一些存款和取款操作，并验证余额:
+
+\begin{codebox}[cmake]
+import os
+import sys
+sys.path.append(os.getenv('ACCOUNT_MODULE_PATH'))
+from account import pyAccount as Account
+account1 = Account()
+account1.deposit(100.0)
+account1.deposit(100.0)
+account2 = Account()
+account2.deposit(200.0)
+account2.deposit(200.0)
+account1.withdraw(50.0)
+assert account1.get_balance() == 150.0
+assert account2.get_balance() == 400.0
+\end{codebox}
+
+\item 有了这个，我们就可以配置、构建和测试代码了:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Start 1: python_test
+1/1 Test #1: python_test ...................... Passed 0.03 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.03 sec
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+本示例中，使用一个相对简单的\texttt{CMakeLists.txt}文件对接了Python和C++，但是是通过使用\texttt{FindCython.cmake}进行的实现。\texttt{UseCython.cmake}模块，放置在\texttt{cmake-cython}下。这些模块包括使用以下代码:
+
+\begin{codebox}[cmake]
+# directory contains UseCython.cmake and FindCython.cmake
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake-cython)
+
+# this defines cython_add_module
+include(UseCython)
+\end{codebox}
+
+\texttt{FindCython.cmake}包含在\texttt{UseCython.cmake}中，并定义了\texttt{\$\{CYTHON\_EXECUTABLE\}}变量。后一个模块定义了\texttt{cython\_add\_module}和\texttt{cython\_add\_standalone\_executable}函数，它们分别用于创建Python模块和独立的可执行程序。这两个模块都可从 \texthref{https://github.com/thewtex/cython-cmake-example/tree/master/cmake} 下载。
+
+这个示例中，使用\texttt{cython\_add\_module}创建一个Python模块库。注意，将使用非标准的\texttt{CYTHON\_IS\_CXX}源文件属性设置为\texttt{TRUE}，以便\texttt{cython\_add\_module}函数知道如何将\texttt{pyx}作为\texttt{C++}文件进行编译:
+
+\begin{codebox}[cmake]
+# tells UseCython to compile this file as a c++ file
+set_source_files_properties(account.pyx PROPERTIES CYTHON_IS_CXX TRUE)
+
+# create python module
+cython_add_module(account account.pyx account.cpp)
+\end{codebox}
+
+Python模块在\texttt{\$\{CMAKE\_CURRENT\_BINARY\_DIR\}}中创建，为了让Python的\texttt{test.py}脚本找到它，我们使用一个自定义环境变量传递相关的路径，该环境变量用于在\texttt{test.py}中设置\texttt{path}变量。请注意，如何将命令设置为调用CMake可执行文件本身，以便在执行Python脚本之前设置本地环境。这为我们提供了平台独立性，并避免了环境污染:
+
+\begin{codebox}[cmake]
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env ACCOUNT_MODULE_PATH=$<TARGET_FILE_DIR:account>
+    ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py
+  )
+\end{codebox}
+
+我们来看看\texttt{account.pyx}文件，这是Python与C++之间的接口文件，并对C++接口进行描述:
+
+\begin{codebox}[python]
+# describe the c++ interface
+cdef extern from "account.hpp":
+  cdef cppclass Account:
+    Account() except +
+    void deposit(double)
+    void withdraw(double)
+    double get_balance()
+\end{codebox}
+
+可以看到\texttt{cinit}构造函数、\texttt{\_\_dealloc\_\_}析构函数以及\texttt{deposit}和\texttt{withdraw}方法是如何与对应的C++实现相匹配的。
+
+总之，发现了一种机制，通过引入对Cython模块的依赖来耦合Python和C++。该模块可以通过\texttt{pip}安装到虚拟环境或Pipenv中，或者使用Anaconda来安装。
+
+\mySmallsection{更多信息}
+
+C语言可以进行类似地耦合。如果希望利用构造函数和析构函数，我们可以在C接口之上封装一个C++层。
+
+类型化Memoryview提供了有趣的功能，可以映射和访问由C/C++直接在Python中分配的内存，而不需要任何创建：\texthref{http://cython.readthedocs.io/en/latest/src/userguide/memoryviews.html} 。它们使得将NumPy数组直接映射为C++数组成为可能。
+
+
+% --- recipe 4: 9.4-chinese.md ---
+\section{9.4 使用Boost.Python构建C++和Python项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-9/recipe-04} 中找到，其中有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Boost库为C++代码提供了Python接口。本示例将展示如何在依赖于Boost的C++项目中使用CMake，之后将其作为Python模块发布。我们将重用前面的示例，并尝试用Cython示例中的C++实现(\texttt{account.cpp})进行交互。
+
+\mySmallsection{准备工作}
+
+保持\texttt{account.cpp}不变的同时，修改前一个示例中的接口文件(\texttt{account.hpp}):
+
+\begin{codebox}[cpp]
+#pragma once
+
+#define BOOST_PYTHON_STATIC_LIB
+#include <boost/python.hpp>
+
+class Account
+{
+public:
+  Account();
+  ~Account();
+  void deposit(const double amount);
+  void withdraw(const double amount);
+  double get_balance() const;
+
+private:
+  double balance;
+};
+
+namespace py = boost::python;
+
+BOOST_PYTHON_MODULE(account)
+{
+  py::class_<Account>("Account")
+      .def("deposit", &Account::deposit)
+      .def("withdraw", &Account::withdraw)
+      .def("get_balance", &Account::get_balance);
+}
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+如何在C++项目中使用Boost.Python的步骤：
+
+\begin{enumerate}
+\item 和之前一样，首先定义最低版本、项目名称、支持语言和默认构建类型:
+
+\begin{codebox}[cmake]
+# define minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and supported language
+project(recipe-04 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# we default to Release build type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+\end{codebox}
+
+\item 本示例中，依赖Python和Boost库，以及使用Python进行测试。Boost.Python组件依赖于Boost版本和Python版本，因此需要对这两个组件的名称进行检测：
+
+\begin{codebox}[cmake]
+# for testing we will need the python interpreter
+find_package(PythonInterp REQUIRED)
+# we require python development headers
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+# now search for the boost component
+# depending on the boost version it is called either python,
+# python2, python27, python3, python36, python37, ...
+list(
+  APPEND _components
+    python${PYTHON_VERSION_MAJOR}${PYTHON_VERSION_MINOR}
+    python${PYTHON_VERSION_MAJOR}
+    python
+  )
+set(_boost_component_found "")
+foreach(_component IN ITEMS ${_components})
+  find_package(Boost COMPONENTS ${_component})
+  if(Boost_FOUND)
+    set(_boost_component_found ${_component})
+    break()
+  endif()
+endforeach()
+if(_boost_component_found STREQUAL "")
+    message(FATAL_ERROR "No matching Boost.Python component found")
+endif()
+\end{codebox}
+
+\item 使用以下命令，定义Python模块及其依赖项:
+
+\begin{codebox}[cmake]
+# create python module
+add_library(account
+  MODULE
+    account.cpp
+  )
+target_link_libraries(account
+  PUBLIC
+    Boost::${_boost_component_found}
+  ${PYTHON_LIBRARIES}
+  )
+target_include_directories(account
+  PRIVATE
+    ${PYTHON_INCLUDE_DIRS}
+  )
+# prevent cmake from creating a "lib" prefix
+set_target_properties(account
+  PROPERTIES
+    PREFIX ""
+  )
+if(WIN32)
+  # python will not import dll but expects pyd
+  set_target_properties(account
+    PROPERTIES
+        SUFFIX ".pyd"
+  )
+endif()
+\end{codebox}
+
+\item 最后，定义了一个测试:
+
+\begin{codebox}[cmake]
+# turn on testing
+enable_testing()
+# define test
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env ACCOUNT_MODULE_PATH=$<TARGET_FILE_DIR:account>
+    ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test.py
+  )
+\end{codebox}
+
+\item 配置、编译和测试:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Start 1: python_test
+1/1 Test #1: python_test ...................... Passed 0.10 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.11 sec
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+现在，不依赖于Cython模块，而是依赖于在系统上的Boost库，以及Python的开发头文件和库。
+
+Python的开发头文件和库的搜索方法如下:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+find_package(PythonLibs ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR} EXACT REQUIRED)
+\end{codebox}
+
+首先搜索解释器，然后搜索开发头和库。此外，对\texttt{PythonLibs}的搜索要求开发头文件和库的主版本和次版本，与解释器的完全相同。但是，命令组合不能保证找到完全匹配的版本。
+
+定位Boost.Python时，我们试图定位的组件的名称既依赖于Boost版本，也依赖于我们的Python环境。根据Boost版本的不同，可以调用python、python2、python3、python27、python36、python37等等。我们从特定的名称搜索到更通用的名称，已经解决了这个问题，只有在没有找到匹配的名称时才会失败：
+
+\begin{codebox}[cmake]
+list(
+  APPEND _components
+    python${PYTHON_VERSION_MAJOR}${PYTHON_VERSION_MINOR}
+    python${PYTHON_VERSION_MAJOR}
+    python
+  )
+  
+set(_boost_component_found "")
+
+foreach(_component IN ITEMS ${_components})
+    find_package(Boost COMPONENTS ${_component})
+    if(Boost_FOUND)
+        set(_boost_component_found ${_component})
+        break()
+    endif()
+endforeach()
+
+if(_boost_component_found STREQUAL "")
+    message(FATAL_ERROR "No matching Boost.Python component found")
+endif()
+\end{codebox}
+
+可以通过设置额外的CMake变量，来调整Boost库的使用方式。例如，CMake提供了以下选项:
+
+\begin{itemize}
+\item \textbf{Boost\_USE\_STATIC\_LIBS}:设置为ON之后，可以使用静态版本的Boost库。
+
+\item \textbf{Boost\_USE\_MULTITHREADED}:设置为ON之后，可以切换成多线程版本。
+
+\item \textbf{Boost\_USE\_STATIC\_RUNTIME}:设置为ON之后，可以在C++运行时静态的连接不同版本的Boost库。
+
+\end{itemize}
+
+此示例的另一个特点是使用\texttt{add\_library}的模块选项。我们已经从第1章第3节了解到，CMake接受以下选项作为\texttt{add\_library}的第二个有效参数:
+
+\begin{itemize}
+\item \textbf{STATIC}:创建静态库，也就是对象文件的存档，用于链接其他目标时使用，例如：可执行文件
+
+\item \textbf{SHARED}:创建共享库，也就是可以动态链接并在运行时加载的库
+
+\item \textbf{OBJECT}:创建对象库，也就是对象文件不需要将它们归档到静态库中，也不需要将它们链接到共享对象中
+
+\end{itemize}
+
+\texttt{MODULE}选项将生成一个插件库，也就是动态共享对象(DSO)，没有动态链接到任何可执行文件，但是仍然可以在运行时加载。由于我们使用C++来扩展Python，所以Python解释器需要能够在运行时加载我们的库。使用\texttt{MODULE}选项进行\texttt{add\_library}，可以避免系统在库名前添加前缀(例如：Unix系统上的lib)。后一项操作是通过设置适当的目标属性来执行的，如下所示:
+
+\begin{codebox}[cmake]
+set_target_properties(account
+  PROPERTIES
+    PREFIX ""
+  )
+\end{codebox}
+
+完成Python和C++接口的示例，需要向Python代码描述如何连接到C++层，并列出对Python可见的符号，我们也有可能重新命名这些符号。在上一个示例中，我们在另一个单独的\texttt{ account.pyx}文件这样用过。当使用Boost.Python时，我们直接用C++代码描述接口，理想情况下接近期望的接口类或函数定义:
+
+\begin{codebox}[cpp]
+BOOST_PYTHON_MODULE(account) {
+  py::class_<Account>("Account")
+    .def("deposit", &Account::deposit)
+    .def("withdraw", &Account::withdraw)
+    .def("get_balance", &Account::get_balance);
+}
+\end{codebox}
+
+\texttt{BOOST\_PYTHON\_MODULE}模板包含在\texttt{<boost/python>}中，负责创建Python接口。该模块将公开一个\texttt{Account} Python类，该类映射到C++类。这种情况下，我们不需要显式地声明构造函数和析构函数——编译器会有默认实现，并在创建Python对象时自动调用:
+
+\begin{codebox}[cpp]
+myaccount = Account()
+\end{codebox}
+
+当对象超出范围并被回收时，将调用析构函数。另外，观察\texttt{BOOST\_PYTHON\_MODULE}如何声明\texttt{deposit}、\texttt{withdraw}和\texttt{get\_balance}函数，并将它们映射为相应的C++类方法。
+
+这样，Python可以在\texttt{PYTHONPATH}中找到编译后的模块。这个示例中，我们实现了Python和C++层之间相对干净的分离。Python代码的功能不受限制，不需要类型注释或重写名称，并保持Python风格:
+
+\begin{codebox}[python]
+from account import Account
+
+account1 = Account()
+
+account1.deposit(100.0)
+account1.deposit(100.0)
+
+account2 = Account()
+
+account2.deposit(200.0)
+account2.deposit(200.0)
+
+account1.withdraw(50.0)
+
+assert account1.get_balance() == 150.0
+assert account2.get_balance() == 400.0
+\end{codebox}
+
+\mySmallsection{更多信息}
+
+这个示例中，我们依赖于系统上安装的Boost，因此CMake代码会尝试检测相应的库。或者，可以将Boost源与项目一起提供，并将此依赖项，作为项目的一部分构建。Boost使用的是一种可移植的方式将Python与C(++)进行连接。然而，与编译器支持和C++标准相关的可移植性是有代价的，因为Boost.Python不是轻量级依赖项。在接下来的示例中，我们将讨论Boost.Python的轻量级替代方案。
+
+
+% --- recipe 5: 9.5-chinese.md ---
+\section{9.5 使用pybind11构建C++和Python项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-9/recipe-05} 中找到，其中有一个C++示例。该示例在CMake 3.11版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+前面的示例中，我们使用Boost.Python与C(C++)接口。本示例中，我们将尝试使用pybind11将Python与C++接口。其实现利用了C++11的特性，因此需要支持C++11的编译器。我们将演示在配置时如何获取pybind11依赖和构建我们的项目，包括一个使用FetchContent方法的Python接口，我们在第4章第3节和第8章第4节中有过讨论。在第11章第2节时，会通过PyPI发布一个用CMake/pybind11构建的C++/Python项目。届时将重新讨论这个例子，并展示如何打包它，使它可以用pip安装。
+
+\mySmallsection{准备工作}
+
+我们将保持\texttt{account.cpp}不变，只修改\texttt{account.cpp}:
+
+\begin{codebox}[cpp]
+#pragma once
+#include <pybind11/pybind11.h>
+class Account
+{
+public:
+  Account();
+  ~Account();
+  void deposit(const double amount);
+  void withdraw(const double amount);
+  double get_balance() const;
+
+private:
+  double balance;
+};
+namespace py = pybind11;
+PYBIND11_MODULE(account, m)
+{
+  py::class_<Account>(m, "Account")
+      .def(py::init())
+      .def("deposit", &Account::deposit)
+      .def("withdraw", &Account::withdraw)
+      .def("get_balance", &Account::get_balance);
+}
+\end{codebox}
+
+按照pybind11文档的方式，通过CMake构建(https://pybind11.readthedocs.io/en/stable/compile )。并使用\texttt{add\_subdirectory}将pybind11导入项目。但是，不会将pybind11源代码显式地放到项目目录中，而是演示如何在配置时使用\texttt{FetchContent} (https://cmake.org/cmake/help/v3.11/module/FetchContent.html )。
+
+为了在下一个示例中更好地重用代码，我们还将把所有源代码放到子目录中，并使用下面的项目布局:
+
+\begin{codebox}[shell]
+.
+├── account
+│    ├── account.cpp
+│    ├── account.hpp
+│    ├── CMakeLists.txt
+│    └── test.py
+└── CMakeLists.txt
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+让我们详细分析一下这个项目中，各个\texttt{CMakeLists.txt}文件的内容:
+
+\begin{enumerate}
+\item 主\texttt{CMakeLists.txt}文件:
+
+\begin{codebox}[cmake]
+# define minimum cmake version
+cmake_minimum_required(VERSION 3.11 FATAL_ERROR)
+# project name and supported language
+project(recipe-05 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 这个文件中，查询了用于测试的Python解释器:
+
+\begin{codebox}[cmake]
+find_package(PythonInterp REQUIRED)
+\end{codebox}
+
+\item 然后，包含\texttt{account}子目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(account)
+\end{codebox}
+
+\item 定义单元测试:
+
+\begin{codebox}[cmake]
+# turn on testing
+enable_testing()
+# define test
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env ACCOUNT_MODULE_PATH=$<TARGET_FILE_DIR:account>
+    ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/account/test.py
+  )
+\end{codebox}
+
+\item \texttt{account/CMakeLists.txt }中，在配置时获取pybind11的源码：
+
+\begin{codebox}[cmake]
+include(FetchContent)
+FetchContent_Declare(
+  pybind11_sources
+  GIT_REPOSITORY https://github.com/pybind/pybind11.git
+  GIT_TAG v2.2
+  )
+FetchContent_GetProperties(pybind11_sources)
+if(NOT pybind11_sources_POPULATED)
+  FetchContent_Populate(pybind11_sources)
+  add_subdirectory(
+    ${pybind11_sources_SOURCE_DIR}
+    ${pybind11_sources_BINARY_DIR}
+    )
+endif()
+\end{codebox}
+
+\item 最后，定义Python模块。再次使用模块选项\texttt{add\_library}。并将库目标的前缀和后缀属性设置为\texttt{PYTHON\_MODULE\_PREFIX}和\texttt{PYTHON\_MODULE\_EXTENSION}，这两个值由pybind11适当地推断出来:
+
+\begin{codebox}[cmake]
+add_library(account
+  MODULE
+    account.cpp
+  )
+target_link_libraries(account
+  PUBLIC
+    pybind11::module
+  )
+set_target_properties(account
+  PROPERTIES
+    PREFIX "${PYTHON_MODULE_PREFIX}"
+    SUFFIX "${PYTHON_MODULE_EXTENSION}"
+  )
+\end{codebox}
+
+\item 进行测试：
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Start 1: python_test
+1/1 Test #1: python_test ...................... Passed 0.04 sec
+100% tests passed, 0 tests failed out of 1
+Total Test time (real) = 0.04 sec
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+pybind11的功能和使用与Boost.Python非常类似。pybind11是一个更轻量级的依赖——不过需要编译器支持C++11。\texttt{ account.hpp}中的接口定义与之前的示例非常类似:
+
+\begin{codebox}[cpp]
+#include <pybind11/pybind11.h>
+// ...
+namespace py = pybind11;
+PYBIND11_MODULE(account, m)
+{
+  py::class_<Account>(m, "Account")
+      .def(py::init())
+      .def("deposit", &Account::deposit)
+      .def("withdraw", &Account::withdraw)
+      .def("get_balance", &Account::get_balance);
+}
+\end{codebox}
+
+同样，我们可以了解到Python方法是如何映射到C++函数的。解释\texttt{PYBIND11\_MODULE}库是在导入的目标\texttt{ pybind11::module }中定义，使用以下代码包括了这个模块:
+
+\begin{codebox}[cmake]
+add_subdirectory(
+  ${pybind11_sources_SOURCE_DIR}
+  ${pybind11_sources_BINARY_DIR}
+  )
+\end{codebox}
+
+与之前的示例有两个不同之处:
+
+\begin{itemize}
+\item 不需要在系统上安装pybind11
+
+\item \texttt{\$\{pybind11\_sources\_SOURCE\_DIR\}}子目录，包含pybind11的\texttt{CMakelist.txt}中，在我们开始构建项目时，这个目录并不存在
+
+\end{itemize}
+
+这个挑战的解决方案是用\texttt{FetchContent}，在配置时获取pybind11源代码和CMake模块，以便可以使用\texttt{add\_subdirectory}引用。使用\texttt{FetchContent}模式，可以假设pybind11在构建树中可用，并允许构建和链接Python模块:
+
+\begin{codebox}[cmake]
+add_library(account
+  MODULE
+    account.cpp
+  )
+
+target_link_libraries(account
+  PUBLIC
+    pybind11::module
+  )
+\end{codebox}
+
+使用下面的命令，确保Python模块库得到一个定义良好的前缀和后缀，并与Python环境兼容:
+
+\begin{codebox}[cmake]
+set_target_properties(account
+  PROPERTIES
+    PREFIX ${PYTHON_MODULE_PREFIX}
+    SUFFIX ${PYTHON_MODULE_EXTENSION}
+  )
+\end{codebox}
+
+主\texttt{CMakeLists.txt}文件的其余部分，都在执行测试(与前一个示例使用相同的\texttt{test.py})。
+
+\mySmallsection{更多信息}
+
+我们可以将pybind11源代码包含在项目源代码存储库中，这将简化CMake结构，并消除在编译时对pybind11源代码进行网络访问的要求。或者，我们可以将pybind11源路径定义为一个Git子模块(https://git-scm.com/book/en/v2/Git-Tools-Submodules )，以应对pybind11源依赖项的更新。
+
+在示例中，我们使用\texttt{FetchContent}解决了这个问题，它提供了一种非常紧凑的方法来引用CMake子项目，而不是显式地跟踪它的源代码。同样，我们也可以使用超级构建的方法来解决这个问题(参见第8章)。
+
+要查看如何简单函数、定义文档注释、映射内存缓冲区等进阶阅读，请参考pybind11文档:\texthref{https://pybind11.readthedocs.io}
+
+
+% --- recipe 6: 9.6-chinese.md ---
+\section{9.6 使用Python CFFI混合C，C++，Fortran和Python}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-9/recipe-06} 中找到，其中有一个C++示例和一个Fortran示例。该示例在CMake 3.11版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+前面的三个示例中，我们使用Cython、Boost.Python和pybind11作为连接Python和C++的工具。之前的示例中，主要连接的是C++接口。然而，可能会遇到这样的情况：将Python与Fortran或其他语言进行接口。
+
+本示例中，我们将使用Python C的外部函数接口(CFFI，参见\texthref{https://cffi.readthedocs.io})。由于C是通用语言，大多数编程语言(包括Fortran)都能够与C接口进行通信，所以Python CFFI是将Python与大量语言结合在一起的工具。Python CFFI的特性是，生成简单且非侵入性的C接口，这意味着它既不限制语言特性中的Python层，也不会对C层以下的代码有任何限制。
+
+本示例中，将使用前面示例的银行帐户示例，通过C接口将Python CFFI应用于Python和C++。我们的目标是实现一个上下文感知的接口。接口中，我们可以实例化几个银行帐户，每个帐户都带有其内部状态。我们将通过讨论如何使用Python CFFI来连接Python和Fortran来结束本教程。
+
+第11章第3节中，通过PyPI分发一个用CMake/CFFI构建的C/Fortran/Python项目，届时我们将重新讨论这个例子，并展示如何打包它，使它可以用\texttt{pip}安装。
+
+\mySmallsection{准备工作}
+
+我们从C++实现和接口开始，把它们放在名为\texttt{account/implementation}的子目录中。实现文件(\texttt{cpp\_implementation.cpp})类似于之前的示例，但是包含有断言，因为我们将对象的状态保持在一个不透明的句柄中，所以必须确保对象在访问时已经创建：
+
+\begin{codebox}[cpp]
+#include "cpp_implementation.hpp"
+
+#include <cassert>
+
+Account::Account()
+{
+  balance = 0.0;
+  is_initialized = true;
+}
+Account::~Account()
+{
+  assert(is_initialized);
+  is_initialized = false;
+}
+void Account::deposit(const double amount)
+{
+  assert(is_initialized);
+  balance += amount;
+}
+void Account::withdraw(const double amount)
+{
+  assert(is_initialized);
+  balance -= amount;
+}
+double Account::get_balance() const
+{
+  assert(is_initialized);
+  return balance;
+}
+\end{codebox}
+
+接口文件(\texttt{ cpp\_implementation.hpp })包含如下内容：
+
+\begin{codebox}[cpp]
+#pragma once
+
+class Account
+{
+public:
+  Account();
+  ~Account();
+  void deposit(const double amount);
+  void withdraw(const double amount);
+  double get_balance() const;
+
+private:
+  double balance;
+  bool is_initialized;
+};
+\end{codebox}
+
+此外，我们隔离了C-C++接口(\texttt{c\_cpp\_interface.cpp})。这将是我们与Python CFFI连接的接口：
+
+\begin{codebox}[cpp]
+#include "account.h"
+#include "cpp_implementation.hpp"
+
+#define AS_TYPE(Type, Obj) reinterpret_cast<Type *>(Obj)
+#define AS_CTYPE(Type, Obj) reinterpret_cast<const Type *>(Obj)
+
+account_context_t *account_new()
+{
+  return AS_TYPE(account_context_t, new Account());
+}
+void account_free(account_context_t *context) { delete AS_TYPE(Account, context); }
+void account_deposit(account_context_t *context, const double amount)
+{
+  return AS_TYPE(Account, context)->deposit(amount);
+}
+void account_withdraw(account_context_t *context, const double amount)
+{
+  return AS_TYPE(Account, context)->withdraw(amount);
+}
+double account_get_balance(const account_context_t *context)
+{
+  return AS_CTYPE(Account, context)->get_balance();
+}
+\end{codebox}
+
+\texttt{account}目录下，我们声明了C接口(\texttt{account.h}):
+
+\begin{codebox}[cpp]
+#ifndef ACCOUNT_API
+#include "account_export.h"
+#define ACCOUNT_API ACCOUNT_EXPORT
+#endif
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+  struct account_context;
+  typedef struct account_context account_context_t;
+  ACCOUNT_API
+  account_context_t *account_new();
+  ACCOUNT_API
+  void account_free(account_context_t *context);
+  ACCOUNT_API
+  void account_deposit(account_context_t *context, const double amount);
+  ACCOUNT_API
+  void account_withdraw(account_context_t *context, const double amount);
+  ACCOUNT_API
+  double account_get_balance(const account_context_t *context);
+#ifdef __cplusplus
+}
+#endif
+#endif /* ACCOUNT_H_INCLUDED */
+\end{codebox}
+
+我们还描述了Python接口，将在稍后对此进行讨论(\texttt{\_\_init\_ \_.py}):
+
+\begin{codebox}[python]
+from subprocess import check_output
+from cffi import FFI
+import os
+import sys
+from configparser import ConfigParser
+from pathlib import Path
+
+def get_lib_handle(definitions, header_file, library_file):
+  ffi = FFI()
+  command = ['cc', '-E'] + definitions + [header_file]
+  interface = check_output(command).decode('utf-8')
+  # remove possible \r characters on windows which
+  # would confuse cdef
+  _interface = [l.strip('\r') for l in interface.split('\n')]
+  ffi.cdef('\n'.join(_interface))
+  lib = ffi.dlopen(library_file)
+  return lib
+
+# this interface requires the header file and library file
+# and these can be either provided by interface_file_names.cfg
+# in the same path as this file
+# or if this is not found then using environment variables
+_this_path = Path(os.path.dirname(os.path.realpath(__file__)))
+_cfg_file = _this_path / 'interface_file_names.cfg'
+if _cfg_file.exists():
+  config = ConfigParser()
+  config.read(_cfg_file)
+  header_file_name = config.get('configuration', 'header_file_name')
+  _header_file = _this_path / 'include' / header_file_name
+  _header_file = str(_header_file)
+  library_file_name = config.get('configuration', 'library_file_name')
+  _library_file = _this_path / 'lib' / library_file_name
+  _library_file = str(_library_file)
+else:
+  _header_file = os.getenv('ACCOUNT_HEADER_FILE')
+  assert _header_file is not None
+  _library_file = os.getenv('ACCOUNT_LIBRARY_FILE')
+  assert _library_file is not None
+
+_lib = get_lib_handle(definitions=['-DACCOUNT_API=', '-DACCOUNT_NOINCLUDE'],
+                      header_file=_header_file,
+                      library_file=_library_file)
+# we change names to obtain a more pythonic API
+new = _lib.account_new
+free = _lib.account_free
+deposit = _lib.account_deposit
+withdraw = _lib.account_withdraw
+get_balance = _lib.account_get_balance
+
+__all__ = [
+    '__version__',
+    'new',
+    'free',
+    'deposit',
+    'withdraw',
+    'get_balance',
+]
+\end{codebox}
+
+我们看到，这个接口的大部分工作是通用的和可重用的，实际的接口相当薄。
+
+项目的布局为：
+
+\begin{codebox}[shell]
+.
+├── account
+│    ├── account.h
+│    ├── CMakeLists.txt
+│    ├── implementation
+│    │    ├── c_cpp_interface.cpp
+│    │    ├── cpp_implementation.cpp
+│    │    └── cpp_implementation.hpp
+│    ├── __init__.py
+│    └── test.py
+└── CMakeLists.txt
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+现在使用CMake来组合这些文件，形成一个Python模块:
+
+\begin{enumerate}
+\item 主\texttt{CMakeLists.txt}文件包含一个头文件。此外，根据GNU标准，设置编译库的位置:
+
+\begin{codebox}[cmake]
+# define minimum cmake version
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+# project name and supported language
+project(recipe-06 LANGUAGES CXX)
+# require C++11
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# specify where to place libraries
+include(GNUInstallDirs)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY
+${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR})
+\end{codebox}
+
+\item 第二步，是在\texttt{account}子目录下包含接口和实现的定义：
+
+\begin{codebox}[cmake]
+# interface and sources
+add_subdirectory(account)
+\end{codebox}
+
+\item 主\texttt{CMakeLists.txt}文件以测试定义(需要Python解释器)结束：
+
+\begin{codebox}[cmake]
+# turn on testing
+enable_testing()
+# require python
+find_package(PythonInterp REQUIRED)
+# define test
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env ACCOUNT_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
+                        ACCOUNT_HEADER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/account/account.h
+                        ACCOUNT_LIBRARY_FILE=$<TARGET_FILE:account>
+   ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/account/test.py
+)
+\end{codebox}
+
+\item \texttt{ account/CMakeLists.txt}中定义了动态库目标：
+
+\begin{codebox}[cmake]
+add_library(account
+  SHARED
+    plementation/c_cpp_interface.cpp
+    implementation/cpp_implementation.cpp
+  )
+target_include_directories(account
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+  )
+\end{codebox}
+
+\item 导出一个可移植的头文件:
+
+\begin{codebox}[cmake]
+include(GenerateExportHeader)
+generate_export_header(account
+  BASE_NAME account
+  )
+\end{codebox}
+
+\item 使用Python-C接口进行对接:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+$ cmake --build .
+$ ctest
+Start 1: python_test
+1/1 Test #1: python_test ...................... Passed 0.14 sec
+100% tests passed, 0 tests failed out of 1
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+虽然，之前的示例要求我们显式地声明Python-C接口，并将Python名称映射到C(++)符号，但Python CFFI从C头文件(示例中是\texttt{account.h})推断出这种映射。我们只需要向Python CFFI层提供描述C接口的头文件和包含符号的动态库。在主\texttt{CMakeLists.txt}文件中使用了环境变量集来实现这一点，这些环境变量可以在\texttt{\_\_init\_\_.py}中找到:
+
+\begin{codebox}[python]
+# ...
+def get_lib_handle(definitions, header_file, library_file):
+  ffi = FFI()
+  command = ['cc', '-E'] + definitions + [header_file]
+  interface = check_output(command).decode('utf-8')
+
+  # remove possible \r characters on windows which
+  # would confuse cdef
+  _interface = [l.strip('\r') for l in interface.split('\n')]
+
+  ffi.cdef('\n'.join(_interface))
+  lib = ffi.dlopen(library_file)
+  return lib
+
+# ...
+
+_this_path = Path(os.path.dirname(os.path.realpath(__file__)))
+_cfg_file = _this_path / 'interface_file_names.cfg'
+if _cfg_file.exists():
+    # we will discuss this section in chapter 11, recipe 3
+else:
+  _header_file = os.getenv('ACCOUNT_HEADER_FILE')
+  assert _header_file is not None
+  _library_file = os.getenv('ACCOUNT_LIBRARY_FILE')
+  assert _library_file is not None
+  _lib = get_lib_handle(definitions=['-DACCOUNT_API=', '-DACCOUNT_NOINCLUDE'],
+  header_file=_header_file,
+  library_file=_library_file)
+# ...
+\end{codebox}
+
+\texttt{get\_lib\_handle}函数打开头文件(使用\texttt{ffi.cdef })并解析加载库(使用\texttt{ ffi.dlopen})。并返回库对象。前面的文件是通用的，可以在不进行修改的情况下重用，用于与Python和C或使用Python CFFI的其他语言进行接口的其他项目。
+
+\texttt{\_lib}库对象可以直接导出，这里有一个额外的步骤，使Python接口在使用时，感觉更像Python:
+
+\begin{codebox}[python]
+# we change names to obtain a more pythonic API
+new = _lib.account_new
+free = _lib.account_free
+deposit = _lib.account_deposit
+withdraw = _lib.account_withdraw
+get_balance = _lib.account_get_balance
+
+__all__ = [
+  '__version__',
+  'new',
+  'free',
+  'deposit',
+  'withdraw',
+  'get_balance',
+]
+\end{codebox}
+
+有了这个变化，可以将例子写成下面的方式:
+
+\begin{codebox}[python]
+import account
+account1 = account.new()
+account.deposit(account1, 100.0)
+\end{codebox}
+
+另一种选择则不那么直观:
+
+\begin{codebox}[python]
+from account import lib
+account1 = lib.account_new()
+lib.account_deposit(account1, 100.0)
+\end{codebox}
+
+需要注意的是，如何使用API来实例化和跟踪上下文:
+
+\begin{codebox}[python]
+account1 = account.new()
+account.deposit(account1, 10.0)
+
+account2 = account.new()
+account.withdraw(account1, 5.0)
+account.deposit(account2, 5.0)
+\end{codebox}
+
+为了导入\texttt{account}的Python模块，需要提供\texttt{ACCOUNT\_HEADER\_FILE}和\texttt{ACCOUNT\_LIBRARY\_FILE}环境变量，就像测试中那样：
+
+\begin{codebox}[cmake]
+add_test(
+  NAME
+    python_test
+  COMMAND
+    ${CMAKE_COMMAND} -E env ACCOUNT_MODULE_PATH=${CMAKE_CURRENT_SOURCE_DIR}
+                        ACCOUNT_HEADER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/account/account.h
+                        ACCOUNT_LIBRARY_FILE=$<TARGET_FILE:account>
+    ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/account/test.py
+  )
+\end{codebox}
+
+第11章中，将讨论如何创建一个可以用\texttt{pip}安装的Python包，其中头文件和库文件将安装在定义良好的位置，这样就不必定义任何使用Python模块的环境变量。
+
+讨论了Python方面的接口之后，现在看下C的接口。\texttt{ account.h}内容为：
+
+\begin{codebox}[cpp]
+struct account_context;
+typedef struct account_context account_context_t;
+
+ACCOUNT_API
+account_context_t *account_new();
+
+ACCOUNT_API
+void account_free(account_context_t *context);
+
+ACCOUNT_API
+void account_deposit(account_context_t *context, const double amount);
+
+ACCOUNT_API
+void account_withdraw(account_context_t *context, const double amount);
+
+ACCOUNT_API
+double account_get_balance(const account_context_t *context);
+\end{codebox}
+
+黑盒句柄\texttt{account\_context}会保存对象的状态。\texttt{ACCOUNT\_API}定义在\texttt{account\_export.h}中，由\texttt{account/interface/CMakeLists.txt}生成：
+
+\begin{codebox}[cmake]
+include(GenerateExportHeader)
+generate_export_header(account
+  BASE_NAME account
+  )
+\end{codebox}
+
+\texttt{ account\_export.h }头文件定义了接口函数的可见性，并确保这是以一种可移植的方式完成的，实现可以在\texttt{cpp\_implementation.cpp}中找到。它包含\texttt{is\_initialized}布尔变量，可以检查这个布尔值确保API函数按照预期的顺序调用：上下文在创建之前或释放之后都不应该被访问。
+
+\mySmallsection{更多信息}
+
+设计Python-C接口时，必须仔细考虑在哪一端分配数组：数组可以在Python端分配并传递给C(++)实现，也可以在返回指针的C(++)实现上分配。后一种方法适用于缓冲区大小事先未知的情况。但返回到分配给C(++)端的数组指针可能会有问题，因为这可能导致Python垃圾收集导致内存泄漏，而Python垃圾收集不会“查看”分配给它的数组。我们建议设计C API，使数组可以在外部分配并传递给C实现。然后，可以在\texttt{\_\_init\_\_.py}中分配这些数组，如下例所示：
+
+\begin{codebox}[python]
+from cffi import FFI
+import numpy as np
+
+_ffi = FFI()
+
+def return_array(context, array_len):
+  # create numpy array
+  array_np = np.zeros(array_len, dtype=np.float64)
+
+  # cast a pointer to its data
+  array_p = _ffi.cast("double *", array_np.ctypes.data)
+
+  # pass the pointer
+  _lib.mylib_myfunction(context, array_len, array_p)
+
+  # return the array as a list
+  return array_np.tolist()
+\end{codebox}
+
+\texttt{return\_array}函数返回一个Python列表。因为在Python端完成了所有的分配工作，所以不必担心内存泄漏，可以将清理工作留给垃圾收集。
+
+对于Fortran示例，读者可以参考以下Git库:\texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter09/recipe06/Fortran-example} 。与C++实现的主要区别在于，account库是由Fortran 90源文件编译而成的，我们在\texttt{account/CMakeLists.txt}中使用了Fortran 90源文件:
+
+\begin{codebox}[cmake]
+add_library(account
+  SHARED
+    implementation/fortran_implementation.f90
+  )
+\end{codebox}
+
+上下文保存在用户定义的类型中:
+
+\begin{codebox}[fortran]
+type :: account
+  private
+  real(c_double) :: balance
+  logical :: is_initialized = .false.
+end type
+\end{codebox}
+
+Fortran实现可以使用\texttt{iso\_c\_binding}模块解析\texttt{account.h}中定义的符号和方法:
+
+\begin{codebox}[fortran]
+module account_implementation
+
+  use, intrinsic :: iso_c_binding, only: c_double, c_ptr
+
+  implicit none
+
+  private
+
+  public account_new
+  public account_free
+  public account_deposit
+  public account_withdraw
+  public account_get_balance
+
+  type :: account
+    private
+    real(c_double) :: balance
+    logical :: is_initialized = .false.
+  end type
+
+contains
+
+  type(c_ptr) function account_new() bind (c)
+    use, intrinsic :: iso_c_binding, only: c_loc
+    type(account), pointer :: f_context
+    type(c_ptr) :: context
+
+    allocate(f_context)
+    context = c_loc(f_context)
+    account_new = context
+    f_context%balance = 0.0d0
+    f_context%is_initialized = .true.
+  end function
+
+  subroutine account_free(context) bind (c)
+    use, intrinsic :: iso_c_binding, only: c_f_pointer
+    type(c_ptr), value :: context
+    type(account), pointer :: f_context
+
+    call c_f_pointer(context, f_context)
+    call check_valid_context(f_context)
+    f_context%balance = 0.0d0
+    f_context%is_initialized = .false.
+    deallocate(f_context)
+  end subroutine
+
+  subroutine check_valid_context(f_context)
+    type(account), pointer, intent(in) :: f_context
+    if (.not. associated(f_context)) then
+        print *, 'ERROR: context is not associated'
+        stop 1
+    end if
+    if (.not. f_context%is_initialized) then
+        print *, 'ERROR: context is not initialized'
+        stop 1
+    end if
+  end subroutine
+
+  subroutine account_withdraw(context, amount) bind (c)
+  use, intrinsic :: iso_c_binding, only: c_f_pointer
+  type(c_ptr), value :: context
+  real(c_double), value :: amount
+  type(account), pointer :: f_context
+
+  call c_f_pointer(context, f_context)
+  call check_valid_context(f_context)
+  f_context%balance = f_context%balance - amount
+  end subroutine
+
+  subroutine account_deposit(context, amount) bind (c)
+    use, intrinsic :: iso_c_binding, only: c_f_pointer
+    type(c_ptr), value :: context
+    real(c_double), value :: amount
+    type(account), pointer :: f_context
+
+    call c_f_pointer(context, f_context)
+    call check_valid_context(f_context)
+    f_context%balance = f_context%balance + amount
+  end subroutine
+
+  real(c_double) function account_get_balance(context) bind (c)
+    use, intrinsic :: iso_c_binding, only: c_f_pointer
+    type(c_ptr), value, intent(in) :: context
+    type(account), pointer :: f_context
+    
+    call c_f_pointer(context, f_context)
+    call check_valid_context(f_context)
+    account_get_balance = f_context%balance
+  end function
+end module
+\end{codebox}
+
+这个示例和解决方案的灵感来自Armin Ronacher的帖子“Beautiful Native Libraries”： \texthref{http://lucumr.pocoo.org/2013/8/18/beautiful-native-libraries/}
+
+

@@ -1,0 +1,1352 @@
+% chapterintro
+% ==============================
+% 第8章 导言：8.0-chinese.md
+本章的主要内容如下：
+
+\begin{itemize}
+\item 使用超级级构建模式
+
+\item 使用超级构建管理依赖项:Ⅰ.Boost库
+
+\item 使用超级构建管理依赖项:Ⅱ.FFTW库
+
+\item 使用超级构建管理依赖项:Ⅲ.Google Test框架
+
+\item 使用超级构建支持项目
+
+\end{itemize}
+
+每个项目都需要处理依赖关系，使用CMake很容易查询这些依赖关系，是否存在于配置项目中。第3章，展示了如何找到安装在系统上的依赖项，到目前为止我们一直使用这种模式。但是，当不满足依赖关系，我们只能使配置失败，并向用户警告失败的原因。然而，使用CMake可以组织我们的项目，如果在系统上找不到依赖项，就可以自动获取和构建依赖项。本章将介绍和分析\texttt{ ExternalProject.cmake}和\texttt{FetchContent.cmake }标准模块，及在超级构建模式中的使用。前者允许在构建时检索项目的依赖项，后者允许我们在配置时检索依赖项(CMake的3.11版本后添加)。使用超级构建模式，我们可以利用CMake作为包管理器：相同的项目中，将以相同的方式处理依赖项，无论依赖项在系统上是已经可用，还是需要重新构建。接下来的5个示例，将带您了解该模式，并展示如何使用它来获取和构建依赖关系。
+
+\begin{myInfoBox}
+\textbf{NOTE}：这两个模块都有大量的在线文档。\texttt{ExternalProject.cmake}，可以参考\texthref{https://cmake.org/cmake/help/v3.5/module/ExternalProject.html} 。\texttt{FetchContent.cmake}，可以参考\texthref{https://cmake.org/cmake/help/v3.11/module/FetchContent.html} 。
+\end{myInfoBox}
+
+
+% --- recipe 1: 8.1-chinese.md ---
+\section{8.1 使用超级构建模式}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-8/recipe-01} 中找到，其中有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+本示例通过一个简单示例，介绍超级构建模式。我们将展示如何使用\texttt{ExternalProject\_Add}命令来构建一个的“Hello, World”程序。
+
+\mySmallsection{准备工作}
+
+本示例将从以下源代码(\texttt{Hello-World.cpp})构建“Hello, World”可执行文件:
+
+\begin{codebox}[cpp]
+#include <cstdlib>
+#include <iostream>
+#include <string>
+
+std::string say_hello() { return std::string("Hello, CMake superbuild world!"); }
+
+int main()
+{
+  std::cout << say_hello() << std::endl;
+  return EXIT_SUCCESS;
+}
+\end{codebox}
+
+项目结构如下:
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+└── src
+      ├── CMakeLists.txt
+      └── hello-world.cpp
+\end{codebox}
+
+\mySmallsection{具体实施}
+
+让我们看一下根目录下的CMakeLists.txt：
+
+\begin{enumerate}
+\item 声明一个C++11项目，以及CMake最低版本:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-01 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 为当前目录和底层目录设置\texttt{EP\_BASE}目录属性:
+
+\begin{codebox}[cmake]
+set_property(DIRECTORY PROPERTY EP_BASE ${CMAKE_BINARY_DIR}/subprojects)
+\end{codebox}
+
+\item 包括\texttt{ExternalProject.cmake}标准模块。该模块提供了\texttt{ExternalProject\_Add}函数:
+
+\begin{codebox}[cmake]
+include(ExternalProject)
+\end{codebox}
+
+\item “Hello, World”源代码通过调用\texttt{ExternalProject\_Add}函数作为外部项目添加的。外部项目的名称为\texttt{recipe-01\_core}:
+
+\begin{codebox}[cmake]
+ExternalProject_Add(${PROJECT_NAME}_core
+\end{codebox}
+
+\item 使用\texttt{SOURCE\_DIR}选项为外部项目设置源目录:
+
+\begin{codebox}[cmake]
+SOURCE_DIR
+${CMAKE_CURRENT_LIST_DIR}/src
+\end{codebox}
+
+\item \texttt{src}子目录包含一个完整的CMake项目。为了配置和构建它，通过\texttt{CMAKE\_ARGS}选项将适当的CMake选项传递给外部项目。例子中，只需要通过C++编译器和C++标准的要求即可:
+
+\begin{codebox}[cmake]
+CMAKE_ARGS
+  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+  -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
+  -DCMAKE_CXX_EXTENSIONS=${CMAKE_CXX_EXTENSIONS}
+  -DCMAKE_CXX_STANDARD_REQUIRED=${CMAKE_CXX_STANDARD_REQUIRED}
+\end{codebox}
+
+\item 我们还设置了C++编译器标志。这些通过使用\texttt{CMAKE\_CACHE\_ARGS}选项传递到\texttt{ExternalProject\_Add}中:
+
+\begin{codebox}[cmake]
+CMAKE_CACHE_ARGS
+    -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
+\end{codebox}
+
+\item 我们配置外部项目，使它进行构建:
+
+\begin{codebox}[cmake]
+BUILD_ALWAYS
+    1
+\end{codebox}
+
+\item 安装步骤不会执行任何操作(我们将在第4节中重新讨论安装，在第10章中安装超级构建，并编写安装程序):
+
+\begin{codebox}[cmake]
+INSTALL_COMMAND
+    ""
+)
+\end{codebox}
+
+\end{enumerate}
+
+现在，我们来看看\texttt{src/CMakeLists.txt}。由于我们将“Hello, World”源文件作为一个外部项目添加，这是一个独立项目的\texttt{CMakeLists.txt}文件:
+
+\begin{enumerate}
+\item 这里声明CMake版本最低要求:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+\end{codebox}
+
+\item 声明一个C++项目：
+
+\begin{codebox}[cmake]
+project(recipe-01_core LANGUAGES CXX)
+\end{codebox}
+
+\item 最终，使用\texttt{hello-world.cpp}源码文件生成可执行目标\texttt{hello-world}：
+
+\begin{codebox}[cmake]
+add_executable(hello-world hello-world.cpp)
+\end{codebox}
+
+\end{enumerate}
+
+配置构建项目：
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cmake ..
+$ cmake --build .
+\end{codebox}
+
+构建目录的结构稍微复杂一些，\texttt{subprojects}文件夹的内容如下:
+
+\begin{codebox}[shell]
+build/subprojects/
+├── Build
+│    └── recipe-01_core
+│        ├── CMakeCache.txt
+│        ├── CMakeFiles
+│        ├── cmake_install.cmake
+│        ├── hello-world
+│        └── Makefile
+├── Download
+│    └── recipe-01_core
+├── Install
+│    └── recipe-01_core
+├── Stamp
+│    └── recipe-01_core
+│        ├── recipe-01_core-configure
+│        ├── recipe-01_core-done
+│        ├── recipe-01_core-download
+│        ├── recipe-01_core-install
+│        ├── recipe-01_core-mkdir
+│        ├── recipe-01_core-patch
+│        └── recipe-01_core-update
+└── tmp
+    └── recipe-01_core
+        ├── recipe-01_core-cache-.cmake
+        ├── recipe-01_core-cfgcmd.txt
+        └── recipe-01_core-cfgcmd.txt.in
+\end{codebox}
+
+\texttt{recipe-01\_core}已经构建到\texttt{build/subprojects}子目录中，称为\texttt{Build/recipe-01\_core}(这是我们设置的\texttt{EP\_BASE})。
+
+\texttt{hello-world}可执行文件在\texttt{Build/recipe-01\_core}下创建，其他子文件夹\texttt{tmp/recipe-01\_core}和\texttt{Stamp/recipe-01\_core}包含临时文件，比如：CMake缓存脚本\texttt{recipe-01\_core-cache-.cmake}和已执行的外部构建项目的各步骤的时间戳文件。
+
+\mySmallsection{工作原理}
+
+\texttt{ExternalProject\_Add}命令可用于添加第三方源。然而，第一个例子展示了，如何将自己的项目，分为不同CMake项目的集合管理。本例中，主\texttt{CMakeLists.txt}和子\texttt{CMakeLists.txt}都声明了一个CMake项目，它们都使用了\texttt{project}命令。
+
+\texttt{ExternalProject\_Add}有许多选项，可用于外部项目的配置和编译等所有方面。这些选择可以分为以下几类:
+
+\begin{itemize}
+\item \textbf{Directory}：它们用于调优源码的结构，并为外部项目构建目录。本例中，我们使用\texttt{SOURCE\_DIR}选项让CMake知道源文件在\texttt{\$\{CMAKE\_CURRENT\_LIST\_DIR\}/src}文件夹中。用于构建项目和存储临时文件的目录，也可以在此类选项或目录属性中指定。通过设置\texttt{EP\_BASE}目录属性，CMake将按照以下布局为各个子项目设置所有目录:
+
+\begin{codebox}[shell]
+TMP_DIR = <EP_BASE>/tmp/<name>
+STAMP_DIR = <EP_BASE>/Stamp/<name>
+DOWNLOAD_DIR = <EP_BASE>/Download/<name>
+SOURCE_DIR = <EP_BASE>/Source/<name>
+BINARY_DIR = <EP_BASE>/Build/<name>
+INSTALL_DIR = <EP_BASE>/Install/<name>
+\end{codebox}
+
+\item \textbf{Download}：外部项目的代码可能需要从在线存储库或资源处下载。
+
+\item \textbf{Update}和\textbf{Patch}：可用于定义如何更新外部项目的源代码或如何应用补丁。
+
+\item \textbf{Configure}：默认情况下，CMake会假定外部项目是使用CMake配置的。如下面的示例所示，我们并不局限于这种情况。如果外部项目是CMake项目，\texttt{ExternalProject\_Add}将调用CMake可执行文件，并传递选项。对于当前的示例，我们通过\texttt{CMAKE\_ARGS}和\texttt{CMAKE\_CACHE\_ARGS}选项传递配置参数。前者作为命令行参数直接传递，而后者通过CMake脚本文件传递。示例中，脚本文件位于\texttt{build/subprojects/tmp/recipe-01\_core/recipe-01\_core- cache-.cmake}。然后，配置如以下所示:
+
+\begin{codebox}[shell]
+$ cmake -DCMAKE_CXX_COMPILER=g++ -DCMAKE_CXX_STANDARD=11
+-DCMAKE_CXX_EXTENSIONS=OFF -DCMAKE_CXX_STANDARD_REQUIRED=ON
+-C/home/roberto/Workspace/robertodr/cmake-cookbook/chapter-08/recipe-01/cxx-example/build/subprojects/tmp/recipe-01_core/recipe-01_core-cache-.cmake "-GUnix Makefiles" /home/roberto/Workspace/robertodr/cmake-cookbook/chapter-08/recipe-01/cxx-example/src
+\end{codebox}
+
+\item \textbf{Build}：可用于调整外部项目的实际编译。我们的示例使用\texttt{BUILD\_ALWAYS}选项确保外部项目总会重新构建。
+
+\item \textbf{Install}：这些选项用于配置应该如何安装外部项目。我们的示例将\texttt{INSTALL\_COMMAND}保留为空，我们将在第10章(编写安装程序)中更详细地讨论与CMake的安装。
+
+\item \textbf{Test}：为基于源代码构建的软件运行测试总是不错的想法。\texttt{ExternalProject\_Add}的这类选项可以用于此目的。我们的示例没有使用这些选项，因为“Hello, World”示例没有任何测试，但是在第5节中，您将管理超级构建的项目，届时将触发一个测试步骤。
+
+\end{itemize}
+
+\texttt{ExternalProject.cmake}定义了\texttt{ExternalProject\_Get\_Property}命令，该命令对于检索外部项目的属性非常有用。外部项目的属性是在首次调用\texttt{ExternalProject\_Add}命令时设置的。例如，在配置\texttt{recipe-01\_core}时，检索要传递给CMake的参数可以通过以下方法实现:
+
+\begin{codebox}[cmake]
+ExternalProject_Get_Property(${PROJECT_NAME}_core CMAKE_ARGS)
+message(STATUS "CMAKE_ARGS of ${PROJECT_NAME}_core ${CMAKE_ARGS}")
+\end{codebox}
+
+\begin{myInfoBox}
+\textbf{NOTE}：\texttt{ExternalProject\_Add}的完整选项列表可以在CMake文档中找到:\texthref{https://cmake.org/cmake/help/v3.5/module/ExternalProject.html\#command:ExternalProject\_Add}
+\end{myInfoBox}
+
+\mySmallsection{更多信息}
+
+下面的示例中，我们将详细讨论\texttt{ExternalProject\_Add}命令的灵活性。然而，有时我们希望使用的外部项目可能需要执行额外的步骤。由于这个原因，\texttt{ExternalProject.cmake}模块定义了以下附加命令:
+
+\begin{enumerate}
+\item \texttt{ExternalProject\_Add\_Step }: 当添加了外部项目，此命令允许将附加的命令作为自定义步骤锁定在其上。参见:\texthref{https://cmake.org/cmake/help/v3.5/module/externalproject.htm\#command:externalproject\_add\_step}
+
+\item \texttt{ExternalProject\_Add\_StepTargets}:允许将外部项目中的步骤(例如：构建和测试步骤)定义为单独的目标。这意味着可以从完整的外部项目中单独触发这些步骤，并允许对项目中的复杂依赖项，进行细粒度控制。参见:\texthref{https://cmake.org/cmake/help/v3.5/module/ExternalProject.htm\#command:externalproject\_add\_steptargets}
+
+\item \texttt{ExternalProject\_Add\_StepDependencies}:外部项目的步骤有时可能依赖于外部目标，而这个命令的设计目的就是处理这些情况。参见:\texthref{https://cmake.org/cmake/help/v3.5/module/ExternalProject.html\#command:externalproject\_add\_stepdependencies}
+
+\end{enumerate}
+
+
+% --- recipe 2: 8.2-chinese.md ---
+\section{8.2 使用超级构建管理依赖项:Ⅰ.Boost库}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-8/recipe-02} 中找到，其中有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+Boost库提供了丰富的C++基础工具，在C++开发人员中很受欢迎。第3章中，已经展示了如何在系统上找到Boost库。然而，有时系统上可能没有项目所需的Boost版本。这个示例将展示如何利用超级构建模式来交付代码，并确保在缺少依赖项时，不会让CMake停止配置。我们将重用在第3章第8节的示例代码，以超构建的形式重新组织。这是项目的文件结构:
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+├── external
+│    └── upstream
+│        ├── boost
+│        │    └── CMakeLists.txt
+│        └── CMakeLists.txt
+└── src
+    ├── CMakeLists.txt
+    └── path-info.cpp
+\end{codebox}
+
+注意到项目源代码树中有四个\texttt{CMakeLists.txt}文件。下面的部分将对这些文件进行详解。
+
+\mySmallsection{具体实施}
+
+从根目录的\texttt{CMakeLists.txt}开始：
+
+\begin{enumerate}
+\item 声明一个C++11项目：
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 对\texttt{EP\_BASE}进行属性设置：
+
+\begin{codebox}[cmake]
+set_property(DIRECTORY PROPERTY EP_BASE ${CMAKE_BINARY_DIR}/subprojects)
+\end{codebox}
+
+\item 我们设置了\texttt{STAGED\_INSTALL\_PREFIX}变量。此目录将用于安装构建树中的依赖项:
+
+\begin{codebox}[cmake]
+set(STAGED_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/stage)
+message(STATUS "${PROJECT_NAME} staged install: ${STAGED_INSTALL_PREFIX}")
+\end{codebox}
+
+\item 项目需要Boost库的文件系统和系统组件。我们声明了一个列表变量来保存这个信息，并设置了Boost所需的最低版本:
+
+\begin{codebox}[cmake]
+list(APPEND BOOST_COMPONENTS_REQUIRED filesystem system)
+set(Boost_MINIMUM_REQUIRED 1.61)
+\end{codebox}
+
+\item 添加\texttt{external/upstream}子目录，它将依次添加\texttt{ external/upstream/boost }子目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(external/upstream)
+\end{codebox}
+
+\item 然后，包括\texttt{ ExternalProject.cmake}标准模块，其中定义了\texttt{ExternalProject\_Add}命令，它是超级构建的关键:
+
+\begin{codebox}[cmake]
+include(ExternalProject)
+\end{codebox}
+
+\item 项目位于\texttt{src}子目录下，我们将它添加为一个外部项目。使用\texttt{CMAKE\_ARGS}和\texttt{CMAKE\_CACHE\_ARGS}传递CMake选项:
+
+\begin{codebox}[cmake]
+ExternalProject_Add(${PROJECT_NAME}_core
+  DEPENDS
+    boost_external
+  SOURCE_DIR
+    ${CMAKE_CURRENT_LIST_DIR}/src
+  CMAKE_ARGS
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
+    -DCMAKE_CXX_EXTENSIONS=${CMAKE_CXX_EXTENSIONS}
+    -DCMAKE_CXX_STANDARD_REQUIRED=${CMAKE_CXX_STANDARD_REQUIRED}
+  CMAKE_CACHE_ARGS
+    -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
+    -DCMAKE_INCLUDE_PATH:PATH=${BOOST_INCLUDEDIR}
+    -DCMAKE_LIBRARY_PATH:PATH=${BOOST_LIBRARYDIR}
+  BUILD_ALWAYS
+    1
+  INSTALL_COMMAND
+    ""
+  )
+\end{codebox}
+
+\end{enumerate}
+
+现在让我们看看\texttt{external/upstream}中的\texttt{CMakeLists.txt}。这个文件只是添加了boost文件夹作为一个额外的目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(boost)
+\end{codebox}
+
+\texttt{ external/upstream/boost }中的\texttt{CMakeLists.txt}描述了满足对Boost的依赖所需的操作。我们的目标很简单，如果没有安装所需的版本，下载源打包文件并构建它:
+
+\begin{enumerate}
+\item 首先，我们试图找到所需Boost组件的最低版本:
+
+\begin{codebox}[cmake]
+find_package(Boost ${Boost_MINIMUM_REQUIRED} QUIET COMPONENTS "${BOOST_COMPONENTS_REQUIRED}")
+\end{codebox}
+
+\item 如果找到这些，则添加一个接口库目标\texttt{boost\_external}。这是一个虚拟目标，需要在我们的超级构建中正确处理构建顺序:
+
+\begin{codebox}[cmake]
+if(Boost_FOUND)
+    message(STATUS "Found Boost version ${Boost_MAJOR_VERSION}.${Boost_MINOR_VERSION}.${Boost_SUBMINOR_VERSION}")
+  add_library(boost_external INTERFACE)
+else()
+    # ... discussed below
+endif()
+\end{codebox}
+
+\item 如果\texttt{find\_package}没有成功，或者正在强制进行超级构建，我们需要建立一个本地构建的Boost。为此，我们进入\texttt{else}部分:
+
+\begin{codebox}[cmake]
+else()
+    message(STATUS "Boost ${Boost_MINIMUM_REQUIRED} could not be located, Building Boost 1.61.0 instead.")
+\end{codebox}
+
+\item 由于这些库不使用CMake，我们需要为它们的原生构建工具链准备参数。首先为Boost设置编译器:
+
+\begin{codebox}[cmake]
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  if(APPLE)
+    set(_toolset "darwin")
+  else()
+    set(_toolset "gcc")
+  endif()
+elseif(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
+  set(_toolset "clang")
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+  if(APPLE)
+    set(_toolset "intel-darwin")
+  else()
+    set(_toolset "intel-linux")
+  endif()
+endif()
+\end{codebox}
+
+\item 我们准备了基于所需组件构建的库列表，定义了一些列表变量:\texttt{\_build\_byproducts}，包含要构建的库的绝对路径;\texttt{\_b2\_select\_libraries}，包含要构建的库的列；和\texttt{\_bootstrap\_select\_libraries}，这是一个字符串，与\texttt{\_b2\_needed\_components}具有相同的内容，但格式不同:
+
+\begin{codebox}[cmake]
+if(NOT "${BOOST_COMPONENTS_REQUIRED}" STREQUAL "")
+  # Replace unit_test_framework (used by CMake's find_package) with test (understood by Boost build toolchain)
+  string(REPLACE "unit_test_framework" "test" _b2_needed_components "${BOOST_COMPONENTS_REQUIRED}")
+  # Generate argument for BUILD_BYPRODUCTS
+  set(_build_byproducts)
+  set(_b2_select_libraries)
+  foreach(_lib IN LISTS _b2_needed_components)
+    list(APPEND _build_byproducts ${STAGED_INSTALL_PREFIX}/boost/lib/libboost_${_lib}${CMAKE_SHARED_LIBRARY_SUFFIX})
+    list(APPEND _b2_select_libraries --with-${_lib})
+  endforeach()
+  # Transform the ;-separated list to a ,-separated list (digested by the Boost build toolchain!)
+  string(REPLACE ";" "," _b2_needed_components "${_b2_needed_components}")
+  set(_bootstrap_select_libraries "--with-libraries=${_b2_needed_components}")
+  string(REPLACE ";" ", " printout "${BOOST_COMPONENTS_REQUIRED}")
+  message(STATUS " Libraries to be built: ${printout}")
+endif()
+\end{codebox}
+
+\item 现在，可以将Boost添加为外部项目。首先，在下载选项类中指定下载URL和checksum。\texttt{DOWNLOAD\_NO\_PROGRESS}设置为1，以禁止打印下载进度信息:
+
+\begin{codebox}[cmake]
+include(ExternalProject)
+ExternalProject_Add(boost_external
+  URL
+    https://sourceforge.net/projects/boost/files/boost/1.61.0/boost_1_61_0.zip
+  URL_HASH
+    SHA256=02d420e6908016d4ac74dfc712eec7d9616a7fc0da78b0a1b5b937536b2e01e8
+  DOWNLOAD_NO_PROGRESS
+    1
+\end{codebox}
+
+\item 接下来，设置更新/补丁和配置选项:
+
+\begin{codebox}[cmake]
+UPDATE_COMMAND
+    ""
+CONFIGURE_COMMAND
+    <SOURCE_DIR>/bootstrap.sh
+        --with-toolset=${_toolset}
+        --prefix=${STAGED_INSTALL_PREFIX}/boost
+${_bootstrap_select_libraries}
+\end{codebox}
+
+\item 构建选项使用\texttt{BUILD\_COMMAND}设置。\texttt{BUILD\_IN\_SOURCE}设置为1时，表示构建将在源目录中发生。这里，将\texttt{LOG\_BUILD}设置为1，以便将生成脚本中的输出记录到文件中:
+
+\begin{codebox}[cmake]
+BUILD_COMMAND
+  <SOURCE_DIR>/b2 -q
+    link=shared
+    threading=multi
+    variant=release
+    toolset=${_toolset}
+    ${_b2_select_libraries}
+LOG_BUILD
+  1
+BUILD_IN_SOURCE
+  1
+\end{codebox}
+
+\item 安装选项是使用\texttt{INSTALL\_COMMAND}指令设置的。注意使用\texttt{LOG\_INSTALL}选项，还可以将安装步骤记录到文件中:
+
+\begin{codebox}[cmake]
+INSTALL_COMMAND
+  <SOURCE_DIR>/b2 -q install
+    link=shared
+    threading=multi
+    variant=release
+    toolset=${_toolset}
+    ${_b2_select_libraries}
+LOG_INSTALL
+    1
+\end{codebox}
+
+\item 最后，库列表为\texttt{BUILD\_BYPRODUCTS}并关闭 \texttt{ExternalProject\_Add}命令:
+
+\begin{codebox}[cmake]
+BUILD_BYPRODUCTS
+  "${_build_byproducts}"
+)
+\end{codebox}
+
+\item 我们设置了一些变量来指导检测新安装的Boost:
+
+\begin{codebox}[cmake]
+set(
+  BOOST_ROOT ${STAGED_INSTALL_PREFIX}/boost
+  CACHE PATH "Path to internally built Boost installation root"
+  FORCE
+  )
+set(
+  BOOST_INCLUDEDIR ${BOOST_ROOT}/include
+  CACHE PATH "Path to internally built Boost include directories"
+  FORCE
+  )
+set(
+  BOOST_LIBRARYDIR ${BOOST_ROOT}/lib
+  CACHE PATH "Path to internally built Boost library directories"
+  FORCE
+  )
+\end{codebox}
+
+\item \texttt{else}分支中，执行的最后一个操作是取消所有内部变量的设置:
+
+\begin{codebox}[cmake]
+unset(_toolset)
+unset(_b2_needed_components)
+unset(_build_byproducts)
+unset(_b2_select_libraries)
+unset(_boostrap_select_libraries)
+\end{codebox}
+
+\end{enumerate}
+
+最后，让我们看看\texttt{src/CMakeLists.txt}。这个文件描述了一个独立的项目:
+
+\begin{enumerate}
+\item 声明一个C++项目：
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-02_core LANGUAGES CXX)
+\end{codebox}
+
+\item 调用\texttt{find\_package}寻找项目依赖的Boost。从主\texttt{CMakeLists.txt}中配置的项目，可以保证始终满足依赖关系，方法是使用预先安装在系统上的Boost，或者使用我们作为子项目构建的Boost:
+
+\begin{codebox}[cmake]
+find_package(Boost 1.61 REQUIRED COMPONENTS filesystem)
+\end{codebox}
+
+\item 添加可执行目标，并链接库:
+
+\begin{codebox}[cmake]
+add_executable(path-info path-info.cpp)
+target_link_libraries(path-info
+  PUBLIC
+    Boost::filesystem
+  ) 
+\end{codebox}
+
+\end{enumerate}
+
+\begin{myInfoBox}
+\textbf{NOTE}：导入目标虽然很简单，但不能保证对任意Boost和CMake版本组合都有效。这是因为CMake的\texttt{FindBoost.cmake}模块会创建手工导入的目标。因此，当CMake有未知版本发布时，可能会有\texttt{Boost\_LIBRARIES}和\texttt{Boost\_INCLUDE\_DIRS}，没有导入情况(https://stackoverflow.com/questions/42123509/cmake-finds-boost-but-the-imported-targets-not-available-for-boost-version )。
+\end{myInfoBox}
+
+\mySmallsection{工作原理}
+
+此示例展示了如何利用超级构建模式，来整合项目的依赖项。让我们再看一下项目的文件结构:
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+├── external
+│    └── upstream
+│        ├── boost
+│        │    └── CMakeLists.txt
+│        └── CMakeLists.txt
+└── src
+    ├── CMakeLists.txt
+    └── path-info.cpp
+\end{codebox}
+
+我们在项目源代码树中，引入了4个\texttt{CMakeLists.txt}文件:
+
+\begin{enumerate}
+\item 主\texttt{CMakeLists.txt}将配合超级构建。
+
+\item \texttt{ external/upstream}中的文件将引导我们到\texttt{boost}子目录。
+
+\item \texttt{external/upstream/boost/CMakeLists.txt }将处理Boost的依赖。
+
+\item 最后，\texttt{src}下的\texttt{CMakeLists.txt}将构建我们的示例代码(其依赖于Boost)。
+
+\end{enumerate}
+
+从\texttt{ external/upstream/boost/CMakeLists.txt }文件开始讨论。Boost使用它自己的构建系统，因此需要在\texttt{ExternalProject\_Add}中详细配置，以便正确设置所有内容:
+
+\begin{enumerate}
+\item 保留目录选项的默认值。
+
+\item 下载步骤将从在线服务器下载所需版本的Boost。因此，我们设置了\texttt{URL}和\texttt{URL\_HASH}。\texttt{URL\_HASH}用于检查下载文件的完整性。由于我们不希望看到下载的进度报告，所以将\texttt{DOWNLOAD\_NO\_PROGRESS}选项设置为true。
+
+\item 更新步骤留空。如果需要重新构建，我们不想再次下载Boost。
+
+\item 配置步骤将使用由Boost在\texttt{CONFIGURE\_COMMAND}中提供的配置工具完成。由于我们希望超级构建是跨平台的，所以我们使用\texttt{ <SOURCE\_DIR>}变量来引用未打包源的位置:
+
+\begin{codebox}[cmake]
+CONFIGURE_COMMAND
+<SOURCE_DIR>/bootstrap.sh
+--with-toolset=${_toolset}
+--prefix=${STAGED_INSTALL_PREFIX}/boost
+${_bootstrap_select_libraries}
+\end{codebox}
+
+\item 将\texttt{BUILD\_IN\_SOURCE}选项设置为true，说明这是一个内置的构建。\texttt{BUILD\_COMMAND}使用Boost本机构建工具\texttt{b2}。由于我们将在源代码中构建，所以我们再次使用\texttt{ <SOURCE\_DIR>}变量来引用未打包源代码的位置。
+
+\item 然后，来看安装选项。Boost使用本地构建工具管理安装。事实上，构建和安装命令可以整合为一个命令。
+
+\item 输出日志选项\texttt{LOG\_BUILD}和\texttt{LOG\_INSTALL} 直接用于为\texttt{ExternalProject\_Add}构建和安装操作编写日志文件，而不是输出到屏幕上。
+
+\item 最后，\texttt{BUILD\_BYPRODUCTS}选项允许\texttt{ExternalProject\_Add}在后续构建中，跟踪新构建的Boost库。
+
+\end{enumerate}
+
+构建Boost之后，构建目录中的\texttt{\$\{STAGED\_INSTALL\_PREFIX\}/Boost}文件夹将包含所需的库。我们需要将此信息传递给我们的项目，该构建系统是在\texttt{src/CMakeLists.txt}中生成的。为了实现这个目标，我们在主\texttt{CMakeLists.txt}的\texttt{ExternalProject\_Add}中传递两个额外的\texttt{CMAKE\_CACHE\_ARGS}:
+
+\begin{enumerate}
+\item CMAKE\_INCLUDE\_PATH: CMake查找C/C++头文件的路径
+
+\item CMAKE\_LIBRARY\_PATH: CMake将查找库的路径
+
+\end{enumerate}
+
+将这些变量设置成新构建的Boost安装路径，可以确保正确地获取依赖项。
+
+\begin{myInfoBox}
+\textbf{TIPS}：在配置项目时将\texttt{CMAKE\_DISABLE\_FIND\_PACKAGE\_Boost}设置为\texttt{ON}，将跳过对Boost库的检测，并始终执行超级构建。参考文档:\texthref{https://cmake.org/cmake/help/v3.5/variable/CMAKE\_DISABLE\_FIND\_PACKAGE\_PackageName.html} 。
+\end{myInfoBox}
+
+
+% --- recipe 3: 8.3-chinese.md ---
+\section{8.3 使用超级构建管理依赖项:Ⅱ.FFTW库}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-8/recipe-03} 中找到，其中有一个C示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+对于CMake支持的所有项目，超级构建模式可用于管理相当复杂的依赖关系。正如在前面的示例所演示的，CMake并不需要管理各种子项目。与前一个示例相反，这个示例中的外部子项目将是一个CMake项目，并将展示如何使用超级构建，下载、构建和安装FFTW库。FFTW是一个快速傅里叶变换库，可在\texthref{http://www.fftw.org} 免费获得。
+
+我们项目的代码\texttt{fftw\_example.c}位于src子目录中，它将计算源代码中定义的函数的傅里叶变换。
+
+\mySmallsection{准备工作}
+
+这个示例的目录布局，是超级构建中非常常见的结构:
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+├── external
+│    └── upstream
+│        ├── CMakeLists.txt
+│        └── fftw3
+│            └── CMakeLists.txt
+└── src
+    ├── CMakeLists.txt
+    └── fftw_example.c
+\end{codebox}
+
+代码\texttt{fftw\_example.c}位于\texttt{src}子目录中，它将调用傅里叶变换函数。
+
+\mySmallsection{具体实施}
+
+从主\texttt{CMakeLists.txt}开始，这里将整个超级构建过程放在一起:
+
+\begin{enumerate}
+\item 声明一个支持C99的项目：
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03 LANGUAGES C)
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 和上一个示例一样，我们设置了\texttt{EP\_BASE}目录属性和阶段安装目录:
+
+\begin{codebox}[cmake]
+set_property(DIRECTORY PROPERTY EP_BASE ${CMAKE_BINARY_DIR}/subprojects)
+set(STAGED_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/stage)
+message(STATUS "${PROJECT_NAME} staged install: ${STAGED_INSTALL_PREFIX}")
+\end{codebox}
+
+\item 对FFTW的依赖关系在\texttt{ external/upstream }子目录中检查，我们会将这个子目录添加到构建系统中:
+
+\begin{codebox}[cmake]
+add_subdirectory(external/upstream)
+\end{codebox}
+
+\item 包含\texttt{ ExternalProject.cmake}模块：
+
+\begin{codebox}[cmake]
+include(ExternalProject)
+\end{codebox}
+
+\item 我们为\texttt{recipe-03\_core}声明了外部项目。这个项目的源代码在\texttt{\$\{CMAKE\_CURRENT\_LIST\_DIR\}/src}文件夹中。该项目设置为\texttt{FFTW3\_DIR}选项，选择正确的FFTW库:
+
+\begin{codebox}[cmake]
+ExternalProject_Add(${PROJECT_NAME}_core
+  DEPENDS
+    fftw3_external
+  SOURCE_DIR
+    ${CMAKE_CURRENT_LIST_DIR}/src
+  CMAKE_ARGS
+    -DFFTW3_DIR=${FFTW3_DIR}
+    -DCMAKE_C_STANDARD=${CMAKE_C_STANDARD}
+    -DCMAKE_C_EXTENSIONS=${CMAKE_C_EXTENSIONS}
+    -DCMAKE_C_STANDARD_REQUIRED=${CMAKE_C_STANDARD_REQUIRED}
+  CMAKE_CACHE_ARGS
+    -DCMAKE_C_FLAGS:STRING=${CMAKE_C_FLAGS}
+    -DCMAKE_PREFIX_PATH:PATH=${CMAKE_PREFIX_PATH}
+  BUILD_ALWAYS
+    1
+  INSTALL_COMMAND
+    ""
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\texttt{external/upstream }子目录还包含一个\texttt{CMakeLists.txt}:
+
+这个文件中，添加\texttt{fftw3}文件夹作为构建系统中的另一个子目录:
+
+\begin{codebox}[cmake]
+add_subdirectory(fftw3)
+\end{codebox}
+
+\texttt{ external/upstream/fftw3 }中的\texttt{CMakeLists.txt}负责处理依赖关系:
+
+\begin{enumerate}
+\item 首先，尝试在系统上找到FFTW3库。注意，我们配置\texttt{find\_package}使用的参数:
+
+\begin{codebox}[cmake]
+find_package(FFTW3 CONFIG QUIET)
+\end{codebox}
+
+\item 如果找到了库，就可以导入目标\texttt{FFTW3::FFTW3}来链接它。我们向用户打印一条消息，显示库的位置。我们添加一个虚拟\texttt{INTERFACE}库\texttt{fftw3\_external}。超级建设中，这需要正确地固定子项目之间的依赖树:
+
+\begin{codebox}[cmake]
+find_package(FFTW3 CONFIG QUIET)
+if(FFTW3_FOUND)
+  get_property(_loc TARGET FFTW3::fftw3 PROPERTY LOCATION)
+  message(STATUS "Found FFTW3: ${_loc} (found version ${FFTW3_VERSION})")
+    add_library(fftw3_external INTERFACE) # dummy
+else()
+    # this branch will be discussed below
+endif()
+\end{codebox}
+
+\item 如果CMake无法找到预安装版本的FFTW，我们将进入\texttt{else}分支。这个分支中，使用\texttt{ExternalProject\_Add}下载、构建和安装它。外部项目的名称为\texttt{fftw3\_external}。\texttt{fftw3\_external}项目将从官方地址下载，下载完成后将使用MD5校验和进行文件完整性检查:
+
+\begin{codebox}[cmake]
+message(STATUS "Suitable FFTW3 could not be located. Downloading and building!")
+include(ExternalProject)
+ExternalProject_Add(fftw3_external
+  URL
+    http://www.fftw.org/fftw-3.3.8.tar.gz
+  URL_HASH
+    MD5=8aac833c943d8e90d51b697b27d4384d
+\end{codebox}
+
+\item 禁用打印下载进程，并将更新命令定义为空:
+
+\begin{codebox}[cmake]
+OWNLOAD_NO_PROGRESS
+    1
+UPDATE_COMMAND
+    ""  
+\end{codebox}
+
+\item 配置、构建和安装输出将被记录到一个文件中:
+
+\begin{codebox}[cmake]
+LOG_CONFIGURE
+    1
+LOG_BUILD
+    1
+LOG_INSTALL
+    1
+\end{codebox}
+
+\item 将\texttt{fftw3\_external}项目的安装前缀设置为之前定义的\texttt{STAGED\_INSTALL\_PREFIX}目录，并关闭FFTW3的测试套件构建:
+
+\begin{codebox}[cmake]
+CMAKE_ARGS
+  -DCMAKE_INSTALL_PREFIX=${STAGED_INSTALL_PREFIX}
+  -DBUILD_TESTS=OFF
+\end{codebox}
+
+\item 如果在Windows上构建，通过生成器表达式设置\texttt{WITH\_OUR\_MALLOC}预处理器选项，并关闭\texttt{ExternalProject\_Add}命令:
+
+\begin{codebox}[cmake]
+CMAKE_CACHE_ARGS
+    -DCMAKE_C_FLAGS:STRING=$<$<BOOL:WIN32>:-DWITH_OUR_MALLOC>
+)
+\end{codebox}
+
+\item 最后，定义\texttt{FFTW3\_DIR}变量并缓存它。CMake将使用该变量作为\texttt{FFTW3::FFTW3}目标的搜索目录:
+
+\begin{codebox}[cmake]
+include(GNUInstallDirs)
+set(
+  FFTW3_DIR ${STAGED_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/cmake/fftw3
+  CACHE PATH "Path to internally built FFTW3Config.cmake"
+  FORCE
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\texttt{src}文件夹中的CMakeLists.txt相当简洁:
+
+\begin{enumerate}
+\item 同样在这个文件中，我们声明了一个C项目:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(recipe-03_core LANGUAGES C)
+\end{codebox}
+
+\item 使用\texttt{find\_package}来检测FFTW库，再次使用配置检测模式:
+
+\begin{codebox}[cmake]
+find_package(FFTW3 CONFIG REQUIRED)
+get_property(_loc TARGET FFTW3::fftw3 PROPERTY LOCATION)
+message(STATUS "Found FFTW3: ${_loc} (found version ${FFTW3_VERSION})")
+\end{codebox}
+
+\item 将\texttt{fftw\_example.c}源文件添加到可执行目标\texttt{fftw\_example}:
+
+\begin{codebox}[cmake]
+add_executable(fftw_example fftw_example.c)
+\end{codebox}
+
+\item 为可执行目标设置链接库:
+
+\begin{codebox}[cmake]
+target_link_libraries(fftw_example
+  PRIVATE
+    FFTW3::fftw3
+  ) 
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+本示例演示了如何下载、构建和安装由CMake管理其构建系统的外部项目。与前一个示例(必须使用自定义构建系统)相反，这个超级构建设置相当简洁。需要注意的是，使用\texttt{find\_package}命令了配置选项；这说明CMake首先查找\texttt{FFTW3Config.cmake}，以定位FFTW3库，将库导出为第三方项目获取的目标。目标包含库的版本、配置和位置，即关于如何配置和构建目标的完整信息。如果系统上没有安装库，我们需要声明\texttt{ FFTW3Config.cmake}文件的位置。这可以通过设置\texttt{FFTW3\_DIR}变量来实现。这是\texttt{external/upstream/fftw3/CMakeLists.txt}文件中的最后一步。使用\texttt{ GNUInstallDirs.cmake}模块，我们将\texttt{FFTW3\_DIR}设置为缓存变量，以便稍后在超级构建中使用。
+
+\begin{myInfoBox}
+\textbf{TIPS}：配置项目时将\texttt{CMAKE\_DISABLE\_FIND\_PACKAGE\_FFTW3}设置为\texttt{ON}，将跳过对FFTW库的检测，并始终执行超级构建。参考:\texthref{https://cmake.org/cmake/help/v3.5/variable/CMAKE\_DISABLE\_FIND\_PACKAGE\_PackageName.html}
+\end{myInfoBox}
+
+
+% --- recipe 4: 8.4-chinese.md ---
+\section{8.4 使用超级构建管理依赖项:Ⅲ.Google Test框架}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-8/recipe-04} 中找到，其中有一个C++示例。该示例在CMake 3.11版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。在库中也有一个例子可以在CMake 3.5下使用。
+\end{myInfoBox}
+
+第4章第3节中，我们使用Google Test框架实现单元测试，并在配置时使用\texttt{FetchContent}模块获取Google Test源(自CMake 3.11开始可用)。本章中，我们将重新讨论这个方法，较少关注测试方面，并更深入地研究\texttt{FetchContent}。它提供了一个简单通用的模块，可以在配置时组装项目依赖项。对于3.11以下的CMake，我们还将讨论如何在配置时使用\texttt{ExternalProject\_Add}模拟\texttt{FetchContent}。
+
+\mySmallsection{准备工作}
+
+这个示例中，我们将复用第4章第3节的源码，构建\texttt{main.cpp}、\texttt{sum\_integer.cpp}和\texttt{sum\_integers.hpp}和\texttt{test.cpp}。我们将在配置时使用\texttt{FetchContent}或\texttt{ExternalProject\_Add}下载所有必需的Google Test源，在此示例中，只关注在配置时获取依赖项，而不是实际的源代码及其单元测试。
+
+\mySmallsection{具体实施}
+
+这个示例中，我们只关注如何获取Google Test源来构建\texttt{gtest\_main}，并链接到Google Test库。关于这个目标如何用于测试示例源的讨论，请读者参考第4章第3节:
+
+\begin{enumerate}
+\item 首先包括\texttt{FetchContent}模块，它将提供需要的声明、查询和填充依赖项函数:
+
+\begin{codebox}[cmake]
+include(FetchContent)
+\end{codebox}
+
+\item 然后，声明内容——名称、存储库位置和要获取的精确版本:
+
+\begin{codebox}[cmake]
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.8.0
+)
+\end{codebox}
+
+\item 查询内容是否已经被获取/填充:
+
+\begin{codebox}[cmake]
+FetchContent_GetProperties(googletest)
+\end{codebox}
+
+\item 前面的函数定义了\texttt{googletest\_POPULATED}。如果内容还没有填充，我们获取内容并配置子项目:
+
+\begin{codebox}[cmake]
+if(NOT googletest_POPULATED)
+  FetchContent_Populate(googletest)
+  # ...
+  # adds the targets: gtest, gtest_main, gmock, gmock_main
+  add_subdirectory(
+    ${googletest_SOURCE_DIR}
+    ${googletest_BINARY_DIR}
+    )
+  # ...
+endif()
+\end{codebox}
+
+\item 注意配置时获取内容的方式:
+
+\begin{codebox}[shell]
+$ mkdir -p build
+$ cd build
+$ cmake ..
+\end{codebox}
+
+\item 这将生成以下构建目录树。Google Test源现已就绪，剩下的就交由CMake处理，并提供所需的目标:
+
+\begin{codebox}[shell]
+build/
+├── ...
+├── _deps
+│    ├── googletest-build
+│    │    ├── ...
+│    │    └── ...
+│    ├── googletest-src
+│    │    ├── ...
+│    │    └── ...
+│    └── googletest-subbuild
+│         ├── ...
+│         └── ...
+└── ...
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+\texttt{FetchContent}模块支持在配置时填充内容。例子中，获取了一个Git库，其中有一个Git标签:
+
+\begin{codebox}[cmake]
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG release-1.8.0
+)
+\end{codebox}
+
+CMake的3.11版本中，\texttt{FetchContent}已经成为CMake的标准部分。下面的代码中，将尝试在配置时使用\texttt{ExternalProject\_Add}模拟\texttt{FetchContent}。这不仅适用于较老的CMake版本，而且可以让我们更深入地了解\texttt{FetchContent}层下面发生了什么，并为使用\texttt{ExternalProject\_Add}在构建时获取项目，提供一个有趣的替代方法。我们的目标是编写一个\texttt{fetch\_git\_repo}宏，并将它放在\texttt{fetch\_git\_repo}中。这样就可以获取相应的内容了:
+
+\begin{codebox}[cmake]
+include(fetch_git_repo.cmake)
+
+fetch_git_repo(
+  googletest
+  ${CMAKE_BINARY_DIR}/_deps
+  https://github.com/google/googletest.git
+  release-1.8.0
+)
+
+# ...
+
+# adds the targets: gtest, gtest_main, gmock, gmock_main
+add_subdirectory(
+  ${googletest_SOURCE_DIR}
+  ${googletest_BINARY_DIR}
+  )
+
+# ...
+\end{codebox}
+
+这类似于\texttt{FetchContent}的使用。在底层实现中，我们将使用\texttt{ExternalProject\_Add}。现在打开模块，检查\texttt{fetch\_git\_repo.cmake }中定义的\texttt{fetch\_git\_repo}:
+
+\begin{codebox}[cmake]
+macro(fetch_git_repo _project_name _download_root _git_url _git_tag)
+
+  set(${_project_name}_SOURCE_DIR ${_download_root}/${_project_name}-src)
+  set(${_project_name}_BINARY_DIR ${_download_root}/${_project_name}-build)
+  
+  # variables used configuring fetch_git_repo_sub.cmake
+  set(FETCH_PROJECT_NAME ${_project_name})
+  set(FETCH_SOURCE_DIR ${${_project_name}_SOURCE_DIR})
+  set(FETCH_BINARY_DIR ${${_project_name}_BINARY_DIR})
+  set(FETCH_GIT_REPOSITORY ${_git_url})
+  set(FETCH_GIT_TAG ${_git_tag})
+  
+  configure_file(
+    ${CMAKE_CURRENT_LIST_DIR}/fetch_at_configure_step.in
+    ${_download_root}/CMakeLists.txt
+    @ONLY
+    )
+    
+  # undefine them again
+  unset(FETCH_PROJECT_NAME)
+  unset(FETCH_SOURCE_DIR)
+  unset(FETCH_BINARY_DIR)
+  unset(FETCH_GIT_REPOSITORY)
+  unset(FETCH_GIT_TAG)
+  
+  # configure sub-project
+  execute_process(
+    COMMAND
+    "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
+    WORKING_DIRECTORY
+    ${_download_root}
+    )
+    
+  # build sub-project which triggers ExternalProject_Add
+  execute_process(
+    COMMAND
+    "${CMAKE_COMMAND}" --build .
+    WORKING_DIRECTORY
+    ${_download_root}
+    )
+endmacro()
+\end{codebox}
+
+宏接收项目名称、下载根目录、Git存储库URL和一个Git标记。宏定义了\texttt{\$\{\_project\_name\}\_SOURCE\_DIR }和\texttt{\$\{\_project\_name\}\_BINARY\_DIR}，我们需要在\texttt{fetch\_git\_repo}生命周期范围内使用定义的\texttt{\$\{\_project\_name\}\_SOURCE\_DIR }和\texttt{ \$\{\_project\_name\}\_BINARY\_DIR}，因为要使用它们对子目录进行配置:
+
+\begin{codebox}[cmake]
+add_subdirectory(
+  ${googletest_SOURCE_DIR}
+  ${googletest_BINARY_DIR}
+  )
+\end{codebox}
+
+\texttt{fetch\_git\_repo}宏中，我们希望使用\texttt{ExternalProject\_Add}在配置时获取外部项目，通过三个步骤实现了这一点:
+
+\begin{enumerate}
+\item 首先，配置\texttt{ fetch\_at\_configure\_step.in }:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+project(fetch_git_repo_sub LANGUAGES NONE)
+include(ExternalProject)
+ExternalProject_Add(
+  @FETCH_PROJECT_NAME@
+  SOURCE_DIR "@FETCH_SOURCE_DIR@"
+  BINARY_DIR "@FETCH_BINARY_DIR@"
+  GIT_REPOSITORY
+  @FETCH_GIT_REPOSITORY@
+  GIT_TAG
+  @FETCH_GIT_TAG@
+  CONFIGURE_COMMAND ""
+  BUILD_COMMAND ""
+  INSTALL_COMMAND ""
+  TEST_COMMAND ""
+  )
+\end{codebox}
+
+使用\texttt{configure\_file}，可以生成一个\texttt{CMakeLists.txt}文件，前面的占位符被\texttt{fetch\_git\_repo.cmake}中的值替换。注意，前面的\texttt{ExternalProject\_Add}命令仅用于获取，而不仅是配置、构建、安装或测试。
+
+\item 其次，使用配置步骤在配置时触发\texttt{ExternalProject\_Add}(从主项目的角度):
+
+\begin{codebox}[cmake]
+# configure sub-project
+execute_process(
+  COMMAND
+    "${CMAKE_COMMAND}" -G "${CMAKE_GENERATOR}" .
+  WORKING_DIRECTORY
+    ${_download_root}
+  )
+\end{codebox}
+
+\item 最后在\texttt{fetch\_git\_repo.cmake }中触发配置时构建步骤:
+
+\begin{codebox}[cmake]
+# build sub-project which triggers ExternalProject_Add
+execute_process(
+  COMMAND
+    "${CMAKE_COMMAND}" --build .
+  WORKING_DIRECTORY
+    ${_download_root}
+  )
+\end{codebox}
+
+\end{enumerate}
+
+这个解决方案的一个优点是，由于外部依赖项不是由\texttt{ExternalProject\_Add}配置的，所以不需要通过\texttt{ExternalProject\_Add}调用任何配置，将其引导至项目。我们可以使用\texttt{add\_subdirectory}配置和构建模块，就像外部依赖项是项目源代码树的一部分一样。聪明的伪装!
+
+\mySmallsection{更多信息}
+
+有关\texttt{FetchContent}选项的详细讨论，请参考\texthref{https://cmake.org/cmake/help/v3.11/module/FetchContent.html} 配置时\texttt{ExternalProject\_Add}的解决方案灵感来自Craig Scott，博客文章:\texthref{https://crascit.com/2015/07/25/cgtest/}
+
+
+% --- recipe 5: 8.5-chinese.md ---
+\section{8.5 使用超级构建支持项目}
+
+\begin{myInfoBox}
+\textbf{NOTE}：此示例代码可以在 \texthref{https://github.com/dev-cafe/cmake-cookbook/tree/v1.0/chapter-8/recipe-05} 中找到，其中有一个C++示例。该示例在CMake 3.5版(或更高版本)中是有效的，并且已经在GNU/Linux、macOS和Windows上进行过测试。
+\end{myInfoBox}
+
+\texttt{ExternalProject}和\texttt{FetchContent}是CMake库中两个非常强大的工具。经过前面的示例，我们应该相信超级构建方法，在管理复杂依赖关系的项目时是多么有用。目前为止，我们已经展示了如何使用\texttt{ExternalProject}来处理以下问题:
+
+\begin{itemize}
+\item 存储在源树中的源
+
+\item 从在线服务器上，检索/获取可用的存档资源
+
+\end{itemize}
+
+前面的示例展示了，如何使用\texttt{FetchContent}处理开源Git存储库中可用的依赖项。本示例将展示，如何使用\texttt{ExternalProject}达到同样的效果。最后，将介绍一个示例，该示例将在第10章第4节中重用。
+
+\mySmallsection{准备工作}
+
+这个超级构建的源代码树现在应该很熟悉了:
+
+\begin{codebox}[shell]
+.
+├── CMakeLists.txt
+├── external
+│    └── upstream
+│        ├── CMakeLists.txt
+│        └── message
+│            └── CMakeLists.txt
+└── src
+    ├── CMakeLists.txt
+    └── use_message.cpp
+\end{codebox}
+
+根目录有一个\texttt{CMakeLists.txt}，我们知道它会配合超级构建。子目录\texttt{src}和\texttt{external}中是我们自己的源代码，CMake指令需要满足对消息库的依赖，我们将在本例中构建消息库。
+
+\mySmallsection{具体实施}
+
+目前为止，建立超级构建的过程应该已经很熟悉了。让我们再次看看必要的步骤，从根目录的\texttt{CMakeLists.txt}开始:
+
+\begin{enumerate}
+\item 声明一个C++11项目，并对项目构建类型的默认值进行设置。
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.6 FATAL_ERROR)
+project(recipe-05 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT DEFINED CMAKE_BUILD_TYPE OR "${CMAKE_BUILD_TYPE}" STREQUAL "")
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+message(STATUS "Build type set to ${CMAKE_BUILD_TYPE}")
+\end{codebox}
+
+\item 设置\texttt{EP\_BASE}目录属性。这将固定\texttt{ExternalProject}管理所有子项目的布局:
+
+\begin{codebox}[cmake]
+set_property(DIRECTORY PROPERTY EP_BASE ${CMAKE_BINARY_DIR}/subprojects)
+\end{codebox}
+
+\item 我们设置了\texttt{STAGED\_INSTALL\_PREFIX}。与之前一样，这个位置将作为依赖项的构建树中的安装目录:
+
+\begin{codebox}[cmake]
+set(STAGED_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/stage)
+message(STATUS "${PROJECT_NAME} staged install: ${STAGED_INSTALL_PREFIX}")
+\end{codebox}
+
+\item 将\texttt{ external/upstream}作为子目录添加：
+
+\begin{codebox}[cmake]
+add_subdirectory(external/upstream)
+\end{codebox}
+
+\item 添加\texttt{ExternalProject\_Add}，这样我们的项目也将由超级构建管理:
+
+\begin{codebox}[cmake]
+include(ExternalProject)
+ExternalProject_Add(${PROJECT_NAME}_core
+  DEPENDS
+    message_external
+  SOURCE_DIR
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+  CMAKE_ARGS
+    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
+    -DCMAKE_CXX_EXTENSIONS=${CMAKE_CXX_EXTENSIONS}
+    -DCMAKE_CXX_STANDARD_REQUIRED=${CMAKE_CXX_STANDARD_REQUIRED}
+    -Dmessage_DIR=${message_DIR}
+    CMAKE_CACHE_ARGS
+    -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
+    -DCMAKE_PREFIX_PATH:PATH=${CMAKE_PREFIX_PATH}
+  BUILD_ALWAYS
+    1
+  INSTALL_COMMAND
+    ""
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\texttt{ external/upstream}的\texttt{CMakeLists.txt}中只包含一条命令:
+
+\begin{codebox}[cmake]
+add_subdirectory(message)
+\end{codebox}
+
+跳转到\texttt{message}文件夹，我们会看到对消息库的依赖的常用命令:
+
+\begin{enumerate}
+\item 首先，调用\texttt{find\_package}找到一个合适版本的库:
+
+\begin{codebox}[cmake]
+find_package(message 1 CONFIG QUIET)
+\end{codebox}
+
+\item 如果找到，会通知用户，并添加一个虚拟\texttt{INTERFACE}库:
+
+\begin{codebox}[cmake]
+get_property(_loc TARGET message::message-shared PROPERTY LOCATION)
+message(STATUS "Found message: ${_loc} (found version ${message_VERSION})")
+add_library(message_external INTERFACE) # dummy
+\end{codebox}
+
+\item 如果没有找到，再次通知用户并继续使用\texttt{ExternalProject\_Add}:
+
+\begin{codebox}[cmake]
+message(STATUS "Suitable message could not be located, Building message instead.")
+\end{codebox}
+
+\item 该项目托管在一个公共Git库中，使用\texttt{GIT\_TAG}选项指定下载哪个分支。和之前一样，将\texttt{UPDATE\_COMMAND}选项置为空:
+
+\begin{codebox}[cmake]
+include(ExternalProject)
+ExternalProject_Add(message_external
+  GIT_REPOSITORY
+    https://github.com/dev-cafe/message.git
+  GIT_TAG
+    master
+  UPDATE_COMMAND
+    ""
+\end{codebox}
+
+\item 外部项目使用CMake配置和构建，传递必要的构建选项:
+
+\begin{codebox}[cmake]
+CMAKE_ARGS
+  -DCMAKE_INSTALL_PREFIX=${STAGED_INSTALL_PREFIX}
+  -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+  -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
+  -DCMAKE_CXX_EXTENSIONS=${CMAKE_CXX_EXTENSIONS}
+  -DCMAKE_CXX_STANDARD_REQUIRED=${CMAKE_CXX_STANDARD_REQUIRED}
+CMAKE_CACHE_ARGS
+    -DCMAKE_CXX_FLAGS:STRING=${CMAKE_CXX_FLAGS}
+\end{codebox}
+
+\item 项目安装后进行测试:
+
+\begin{codebox}[cmake]
+    TEST_AFTER_INSTALL
+        1
+\end{codebox}
+
+\item 我们不希望看到下载进度，也不希望在屏幕上报告配置、构建和安装信息，所以选择关闭\texttt{ExternalProject\_Add}:
+
+\begin{codebox}[cmake]
+  DOWNLOAD_NO_PROGRESS
+    1
+  LOG_CONFIGURE
+    1
+  LOG_BUILD
+    1
+  LOG_INSTALL
+    1
+)
+\end{codebox}
+
+\item 为了确保子项目在超级构建的其余部分中是可见的，我们设置了\texttt{message\_DIR}目录:
+
+\begin{codebox}[cmake]
+if(WIN32 AND NOT CYGWIN)
+    set(DEF_message_DIR ${STAGED_INSTALL_PREFIX}/CMake)
+else()
+    set(DEF_message_DIR ${STAGED_INSTALL_PREFIX}/share/cmake/message)
+endif()
+file(TO_NATIVE_PATH "${DEF_message_DIR}" DEF_message_DIR)
+set(message_DIR ${DEF_message_DIR}
+CACHE PATH "Path to internally built messageConfig.cmake" FORCE)
+\end{codebox}
+
+\end{enumerate}
+
+最后，来看一下\texttt{src}目录上的\texttt{CMakeLists.txt}：
+
+\begin{enumerate}
+\item 同样，声明一个C++11项目:
+
+\begin{codebox}[cmake]
+cmake_minimum_required(VERSION 3.6 FATAL_ERROR)
+project(recipe-05_core
+LANGUAGES CXX
+)
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+\end{codebox}
+
+\item 项目需要消息库:
+
+\begin{codebox}[cmake]
+find_package(message 1 CONFIG REQUIRED)
+get_property(_loc TARGET message::message-shared PROPERTY LOCATION)
+message(STATUS "Found message: ${_loc} (found version ${message_VERSION})")
+\end{codebox}
+
+\item 声明一个可执行目标，并将其链接到消息动态库:
+
+\begin{codebox}[cmake]
+add_executable(use_message use_message.cpp)
+target_link_libraries(use_message
+  PUBLIC
+    message::message-shared
+  )
+\end{codebox}
+
+\end{enumerate}
+
+\mySmallsection{工作原理}
+
+示例展示了\texttt{ExternalProject\_Add}的一些新选项:
+
+\begin{enumerate}
+\item \textbf{GIT\_REPOSITORY}:这可以用来指定包含依赖项源的存储库的URL。CMake还可以使用其他版本控制系统，比如CVS (CVS\_REPOSITORY)、SVN (SVN\_REPOSITORY)或Mercurial (HG\_REPOSITORY)。
+
+\item \textbf{GIT\_TAG}:默认情况下，CMake将检出给定存储库的默认分支。然而，最好依赖于一个稳定的版本。这可以通过这个选项指定，它可以接受Git将任何标识符识别为“版本”信息，例如：Git提交SHA、Git标记或分支名称。CMake所理解的其他版本控制系统也可以使用类似的选项。
+
+\item \textbf{TEST\_AFTER\_INSTALL}:依赖项很可能有自己的测试套件，您可能希望运行测试套件，以确保在超级构建期间一切顺利。此选项将在安装步骤之后立即运行测试。
+
+\end{enumerate}
+
+\texttt{ExternalProject\_Add}可以理解的其他测试选项如下:
+
+\begin{itemize}
+\item \textbf{TEST\_BEFORE\_INSTALL}:将在安装步骤之前运行测试套件
+
+\item \textbf{TEST\_EXCLUDE\_FROM\_MAIN}:可以从测试套件中，删除对外部项目的主要目标的依赖
+
+\end{itemize}
+
+这些选项都假定外部项目使用CTest管理测试。如果外部项目不使用CTest来管理测试，我们可以通过\texttt{TEST\_COMMAND}选项来执行测试。
+
+即使是为属于自己项目的模块引入超级构建模式，也需要引入额外的层，重新声明小型CMake项目，并通过\texttt{ExternalProject\_Add}显式地传递配置设置。引入这个附加层的好处是，清晰地分离了变量和目标范围，这可以帮助管理由多个组件组成的项目中的复杂性、依赖性和名称空间，这些组件可以是内部的，也可以是外部的，并由CMake组合在一起。
+
+
